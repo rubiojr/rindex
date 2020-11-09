@@ -11,7 +11,6 @@ import (
 
 	"github.com/blugelabs/bluge"
 	"github.com/rubiojr/rapi"
-	"github.com/rubiojr/rapi/repository"
 	"github.com/rubiojr/rapi/restic"
 	"github.com/rubiojr/rindex/blugeindex"
 )
@@ -34,10 +33,6 @@ type IndexStats struct {
 	ScannedTrees   int64
 	IndexedNodes   int64
 	AlreadyIndexed int64
-}
-
-type IndexerConfig struct {
-	Repository *repository.Repository
 }
 
 func NewFileID(bytes [32]byte) *FileID {
