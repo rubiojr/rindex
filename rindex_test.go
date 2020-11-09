@@ -13,13 +13,16 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestIndex(t *testing.T) {
+func TestIndexWithPath(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx := blugeindex.Init("testdata/test.idx", 1)
+	idxOpts := &IndexOptions{
+		RepositoryLocation: "testdata/repo",
+		RepositoryPassword: "test",
+		Filter:             "*",
+		IndexPath:          "testdata/test.idx",
+	}
 
-	ropts := &RepositoryOptions{Location: "testdata/repo", Password: "test"}
-
-	stats, err := Index(ropts, idx, "*", progress)
+	stats, err := Index(idxOpts, progress)
 	if err != nil {
 		t.Error(err)
 	}
@@ -37,7 +40,7 @@ func TestIndex(t *testing.T) {
 	}
 
 	// reindex
-	stats, err = Index(ropts, idx, "*", progress)
+	stats, err = Index(idxOpts, progress)
 	if err != nil {
 		t.Error(err)
 	}
@@ -56,11 +59,31 @@ func TestIndex(t *testing.T) {
 	if len(stats.Errors) != 0 {
 		t.Error("errors found while indexing")
 	}
-	if c, err := blugeindex.BlugeInstance().Count(); err == nil {
-		if c != 2 {
-			t.Errorf("item count %d", c)
-		}
-	} else {
+}
+
+func TestIndexWithEngine(t *testing.T) {
+	progress := make(chan IndexStats, 10)
+	idxOpts := &IndexOptions{
+		RepositoryLocation: "testdata/repo",
+		RepositoryPassword: "test",
+		Filter:             "*",
+		IndexEngine:        blugeindex.Init("testdata/test2.idx", 10),
+	}
+	stats, err := Index(idxOpts, progress)
+	if err != nil {
 		t.Error(err)
 	}
+	if stats.IndexedNodes != 2 {
+		t.Errorf("%v", stats)
+	}
+	if stats.ScannedNodes != 2 {
+		t.Errorf("%v", stats)
+	}
+	if stats.ScannedTrees != 1 {
+		t.Errorf("%v", stats)
+	}
+	if len(stats.Errors) != 0 {
+		t.Error("errors found while indexing")
+	}
+
 }

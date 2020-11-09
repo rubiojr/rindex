@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -63,20 +64,32 @@ func MarshalBlobIDs(ids restic.IDs) string {
 	return string(j)
 }
 
-type RepositoryOptions struct {
-	Location string
-	Password string
+type IndexOptions struct {
+	RepositoryLocation string
+	RepositoryPassword string
+	IndexPath          string
+	Filter             string
+	BatchSize          int
+	IndexEngine        *blugeindex.BlugeIndex
 }
 
-func Index(opts *RepositoryOptions, bluge *blugeindex.BlugeIndex, filter string, progress chan IndexStats) (IndexStats, error) {
+func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
 	indexer := NewFileIndexer()
-	return IndexWithIndexer(opts, bluge, filter, indexer, progress)
+	var bindex *blugeindex.BlugeIndex
+	if opts.IndexEngine != nil {
+		bindex = opts.IndexEngine
+	} else if opts.IndexPath != "" {
+		bindex = blugeindex.NewBlugeIndex(opts.IndexPath, opts.BatchSize)
+	} else {
+		return IndexStats{}, errors.New("Missing IndexEngine or IndexPath")
+	}
+	return CustomIndex(opts, bindex, indexer, progress)
 }
 
-func IndexWithIndexer(opts *RepositoryOptions, bluge *blugeindex.BlugeIndex, filter string, indexer Indexer, progress chan IndexStats) (IndexStats, error) {
+func CustomIndex(opts *IndexOptions, bluge *blugeindex.BlugeIndex, indexer Indexer, progress chan IndexStats) (IndexStats, error) {
 	ropts := rapi.DefaultOptions
-	opts.Password = opts.Password
-	opts.Location = opts.Location
+	ropts.Password = opts.RepositoryPassword
+	ropts.Repo = opts.RepositoryLocation
 	repo, err := rapi.OpenRepository(ropts)
 	if err != nil {
 		return IndexStats{}, err
@@ -123,7 +136,7 @@ func IndexWithIndexer(opts *RepositoryOptions, bluge *blugeindex.BlugeIndex, fil
 				}
 				continue
 			}
-			match, err := filepath.Match(filter, strings.ToLower(node.Name))
+			match, err := filepath.Match(opts.Filter, strings.ToLower(node.Name))
 			if err != nil {
 				stats.Errors = append(stats.Errors, err)
 				progress <- stats
