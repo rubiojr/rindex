@@ -81,7 +81,7 @@ func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
 	} else if opts.IndexPath != "" {
 		bindex = blugeindex.NewBlugeIndex(opts.IndexPath, opts.BatchSize)
 	} else {
-		return IndexStats{}, errors.New("Missing IndexEngine or IndexPath")
+		return IndexStats{}, errors.New("missing IndexEngine or IndexPath")
 	}
 	return CustomIndex(opts, bindex, indexer, progress)
 }

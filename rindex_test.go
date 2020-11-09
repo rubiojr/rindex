@@ -85,5 +85,4 @@ func TestIndexWithEngine(t *testing.T) {
 	if len(stats.Errors) != 0 {
 		t.Error("errors found while indexing")
 	}
-
 }
