@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/blugelabs/bluge"
+	"github.com/rubiojr/rapi"
 	"github.com/rubiojr/rapi/repository"
 	"github.com/rubiojr/rapi/restic"
 	"github.com/rubiojr/rindex/blugeindex"
@@ -62,15 +63,27 @@ func MarshalBlobIDs(ids restic.IDs) string {
 	return string(j)
 }
 
-func Index(repo *repository.Repository, bluge *blugeindex.BlugeIndex, filter string, progress chan IndexStats) (IndexStats, error) {
-	indexer := NewFileIndexer()
-	return IndexWithIndexer(repo, bluge, filter, indexer, progress)
+type RepositoryOptions struct {
+	Location string
+	Password string
 }
 
-func IndexWithIndexer(repo *repository.Repository, bluge *blugeindex.BlugeIndex, filter string, indexer Indexer, progress chan IndexStats) (IndexStats, error) {
+func Index(opts *RepositoryOptions, bluge *blugeindex.BlugeIndex, filter string, progress chan IndexStats) (IndexStats, error) {
+	indexer := NewFileIndexer()
+	return IndexWithIndexer(opts, bluge, filter, indexer, progress)
+}
+
+func IndexWithIndexer(opts *RepositoryOptions, bluge *blugeindex.BlugeIndex, filter string, indexer Indexer, progress chan IndexStats) (IndexStats, error) {
+	ropts := rapi.DefaultOptions
+	opts.Password = opts.Password
+	opts.Location = opts.Location
+	repo, err := rapi.OpenRepository(ropts)
+	if err != nil {
+		return IndexStats{}, err
+	}
+
 	ctx := context.Background()
 	stats := IndexStats{Errors: []error{}}
-	var err error
 	if err = repo.LoadIndex(ctx); err != nil {
 		return stats, err
 	}

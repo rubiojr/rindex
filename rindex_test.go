@@ -4,7 +4,6 @@ import (
 	"os"
 	"testing"
 
-	"github.com/rubiojr/rapi"
 	"github.com/rubiojr/rindex/blugeindex"
 )
 
@@ -15,15 +14,12 @@ func TestMain(m *testing.M) {
 }
 
 func TestIndex(t *testing.T) {
-	repo, err := rapi.OpenRepository(rapi.DefaultOptions)
-	if err != nil {
-		panic(nil)
-	}
-
 	progress := make(chan IndexStats, 10)
 	idx := blugeindex.Init("testdata/test.idx", 1)
-	stats, err := Index(repo, idx, "*", progress)
 
+	ropts := &RepositoryOptions{Location: "testdata/repo", Password: "test"}
+
+	stats, err := Index(ropts, idx, "*", progress)
 	if err != nil {
 		t.Error(err)
 	}
@@ -41,7 +37,7 @@ func TestIndex(t *testing.T) {
 	}
 
 	// reindex
-	stats, err = Index(repo, idx, "*", progress)
+	stats, err = Index(ropts, idx, "*", progress)
 	if err != nil {
 		t.Error(err)
 	}
