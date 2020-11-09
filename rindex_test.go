@@ -54,6 +54,9 @@ func TestIndex(t *testing.T) {
 	if stats.ScannedTrees != 1 {
 		t.Errorf("%v", stats)
 	}
+	if stats.AlreadyIndexed != 2 {
+		t.Errorf("%v", stats)
+	}
 	if len(stats.Errors) != 0 {
 		t.Error("errors found while indexing")
 	}

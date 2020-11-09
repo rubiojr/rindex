@@ -9,4 +9,4 @@ rm -rf "blugeindex/testdata"
 restic init > /dev/null
 restic backup rindex.go fileindexer.go > /dev/null
 
-go test -v . ./blugeindex
+go test . ./blugeindex
