@@ -33,6 +33,7 @@ type IndexStats struct {
 	ScannedTrees   int64
 	IndexedNodes   int64
 	AlreadyIndexed int64
+	LastScanned    string
 }
 
 func NewFileID(bytes [32]byte) *FileID {
@@ -117,6 +118,7 @@ func CustomIndex(opts *IndexOptions, bluge *blugeindex.BlugeIndex, indexer Index
 
 		for _, node := range tree.Nodes {
 			stats.ScannedNodes++
+			stats.LastScanned = node.Name
 			progress <- stats
 			if node.Type != "file" {
 				stats.NonFileNodes++
@@ -134,7 +136,6 @@ func CustomIndex(opts *IndexOptions, bluge *blugeindex.BlugeIndex, indexer Index
 			match, err := filepath.Match(opts.Filter, strings.ToLower(node.Name))
 			if err != nil {
 				stats.Errors = append(stats.Errors, err)
-				progress <- stats
 				continue
 			}
 			if !match {
