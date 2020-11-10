@@ -150,7 +150,8 @@ func CustomIndex(opts *IndexOptions, indexer Indexer, progress chan IndexStats) 
 					doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue().HighlightMatches()).
 						AddField(bluge.NewTextField("repository_location", repo.Backend().Location()).StoreValue().HighlightMatches()).
 						AddField(bluge.NewTextField("repository_id", repo.Config().ID).StoreValue().HighlightMatches()).
-						AddField(bluge.NewDateTimeField("mod_time", node.ModTime).StoreValue().HighlightMatches())
+						AddField(bluge.NewDateTimeField("mod_time", node.ModTime).StoreValue().HighlightMatches()).
+						AddField(bluge.NewTextField("blobs", MarshalBlobIDs(node.Content)).StoreValue())
 				}
 				err = bindex.Index(doc)
 				if err != nil {
