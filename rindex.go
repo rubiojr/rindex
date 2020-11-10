@@ -11,6 +11,7 @@ import (
 
 	"github.com/blugelabs/bluge"
 	"github.com/rubiojr/rapi"
+	"github.com/rubiojr/rapi/repository"
 	"github.com/rubiojr/rapi/restic"
 	"github.com/rubiojr/rindex/blugeindex"
 )
@@ -21,7 +22,7 @@ type FileID struct {
 }
 
 type Indexer interface {
-	ShouldIndex(string, *blugeindex.BlugeIndex, *restic.Node, string, string) (*bluge.Document, bool)
+	ShouldIndex(string, *blugeindex.BlugeIndex, *restic.Node, *repository.Repository) (*bluge.Document, bool)
 }
 
 type IndexStats struct {
@@ -142,9 +143,7 @@ func CustomIndex(opts *IndexOptions, bluge *blugeindex.BlugeIndex, indexer Index
 				stats.Mismatch++
 				continue
 			}
-			repoId := repo.Config().ID
-			repoLocation := repo.Backend().Location()
-			if doc, ok := indexer.ShouldIndex(fileID.String(), bluge, node, repoId, repoLocation); ok {
+			if doc, ok := indexer.ShouldIndex(fileID.String(), bluge, node, repo); ok {
 				err = bluge.Index(doc)
 				if err != nil {
 					stats.Errors = append(stats.Errors, err)
