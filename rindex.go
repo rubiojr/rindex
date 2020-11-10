@@ -35,6 +35,7 @@ type IndexStats struct {
 	IndexedNodes   int64
 	AlreadyIndexed int64
 	LastScanned    string
+	LastMatch      string
 }
 
 func NewFileID(bytes [32]byte) *FileID {
@@ -107,8 +108,6 @@ func CustomIndex(opts *IndexOptions, indexer Indexer, progress chan IndexStats) 
 		}
 	}
 
-	stats.TreeBlobs = int64(len(treeBlobs))
-
 	for _, blob := range treeBlobs {
 		stats.ScannedTrees++
 		repo.LoadBlob(ctx, restic.TreeBlob, blob, nil)
@@ -144,6 +143,7 @@ func CustomIndex(opts *IndexOptions, indexer Indexer, progress chan IndexStats) 
 				stats.Mismatch++
 				continue
 			}
+			stats.LastMatch = node.Name
 			if doc, ok := indexer.ShouldIndex(fileID.String(), bluge, node, repo); ok {
 				err = bluge.Index(doc)
 				if err != nil {
