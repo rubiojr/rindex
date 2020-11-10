@@ -69,6 +69,7 @@ type IndexOptions struct {
 	Filter             string
 	BatchSize          int
 	IndexEngine        *blugeindex.BlugeIndex
+	AppendFileMeta     bool
 }
 
 func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
@@ -77,11 +78,11 @@ func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
 }
 
 func CustomIndex(opts *IndexOptions, indexer Indexer, progress chan IndexStats) (IndexStats, error) {
-	var bluge *blugeindex.BlugeIndex
+	var bindex *blugeindex.BlugeIndex
 	if opts.IndexEngine != nil {
-		bluge = opts.IndexEngine
+		bindex = opts.IndexEngine
 	} else if opts.IndexPath != "" {
-		bluge = blugeindex.NewBlugeIndex(opts.IndexPath, opts.BatchSize)
+		bindex = blugeindex.NewBlugeIndex(opts.IndexPath, opts.BatchSize)
 	} else {
 		return IndexStats{}, errors.New("missing IndexEngine or IndexPath")
 	}
@@ -126,7 +127,7 @@ func CustomIndex(opts *IndexOptions, indexer Indexer, progress chan IndexStats) 
 				continue
 			}
 			fileID := NodeFileID(node)
-			if match, err := bluge.Get(fileID.String()); match != nil {
+			if match, err := bindex.Get(fileID.String()); match != nil {
 				if err != nil {
 					stats.Errors = append(stats.Errors, err)
 				} else {
@@ -144,8 +145,14 @@ func CustomIndex(opts *IndexOptions, indexer Indexer, progress chan IndexStats) 
 				continue
 			}
 			stats.LastMatch = node.Name
-			if doc, ok := indexer.ShouldIndex(fileID.String(), bluge, node, repo); ok {
-				err = bluge.Index(doc)
+			if doc, ok := indexer.ShouldIndex(fileID.String(), bindex, node, repo); ok {
+				if opts.AppendFileMeta {
+					doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue().HighlightMatches()).
+						AddField(bluge.NewTextField("repository_location", repo.Backend().Location()).StoreValue().HighlightMatches()).
+						AddField(bluge.NewTextField("repository_id", repo.Config().ID).StoreValue().HighlightMatches()).
+						AddField(bluge.NewDateTimeField("mod_time", node.ModTime).StoreValue().HighlightMatches())
+				}
+				err = bindex.Index(doc)
 				if err != nil {
 					stats.Errors = append(stats.Errors, err)
 				} else {
@@ -155,5 +162,5 @@ func CustomIndex(opts *IndexOptions, indexer Indexer, progress chan IndexStats) 
 		}
 	}
 
-	return stats, bluge.Close()
+	return stats, bindex.Close()
 }

@@ -20,6 +20,7 @@ func TestIndexWithPath(t *testing.T) {
 		RepositoryPassword: "test",
 		Filter:             "*",
 		IndexPath:          "testdata/test.idx",
+		AppendFileMeta:     true,
 	}
 
 	stats, err := Index(idxOpts, progress)
