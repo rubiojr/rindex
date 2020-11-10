@@ -72,18 +72,19 @@ type IndexOptions struct {
 
 func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
 	indexer := NewFileIndexer()
-	var bindex *blugeindex.BlugeIndex
+	return CustomIndex(opts, indexer, progress)
+}
+
+func CustomIndex(opts *IndexOptions, indexer Indexer, progress chan IndexStats) (IndexStats, error) {
+	var bluge *blugeindex.BlugeIndex
 	if opts.IndexEngine != nil {
-		bindex = opts.IndexEngine
+		bluge = opts.IndexEngine
 	} else if opts.IndexPath != "" {
-		bindex = blugeindex.NewBlugeIndex(opts.IndexPath, opts.BatchSize)
+		bluge = blugeindex.NewBlugeIndex(opts.IndexPath, opts.BatchSize)
 	} else {
 		return IndexStats{}, errors.New("missing IndexEngine or IndexPath")
 	}
-	return CustomIndex(opts, bindex, indexer, progress)
-}
 
-func CustomIndex(opts *IndexOptions, bluge *blugeindex.BlugeIndex, indexer Indexer, progress chan IndexStats) (IndexStats, error) {
 	ropts := rapi.DefaultOptions
 	ropts.Password = opts.RepositoryPassword
 	ropts.Repo = opts.RepositoryLocation
