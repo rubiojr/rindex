@@ -135,15 +135,11 @@ func (i *BlugeIndex) Count() (int64, error) {
 
 	request := bluge.NewAllMatches(query)
 
-	writer, err := i.Writer()
+	reader, err := i.Reader()
 	if err != nil {
 		return 0, err
 	}
-
-	reader, err := writer.Reader()
-	if err != nil {
-		return 0, err
-	}
+	defer reader.Close()
 
 	documentMatchIterator, err := reader.Search(context.Background(), request)
 	if err != nil {
@@ -167,15 +163,11 @@ func (i *BlugeIndex) Get(id string) (*search.DocumentMatch, error) {
 	query := bluge.NewWildcardQuery(id).SetField("_id")
 	request := bluge.NewAllMatches(query)
 
-	writer, err := i.Writer()
+	reader, err := i.Reader()
 	if err != nil {
 		return nil, err
 	}
-
-	reader, err := writer.Reader()
-	if err != nil {
-		return nil, err
-	}
+	defer reader.Close()
 
 	documentMatchIterator, err := reader.Search(context.Background(), request)
 	if err != nil {
