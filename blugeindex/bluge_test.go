@@ -7,21 +7,18 @@ import (
 )
 
 func TestBlugeIndex(t *testing.T) {
-	Init("tmp/test.idx", 1)
+	i := NewBlugeIndex("tmp/test.idx", 0)
+	defer i.Close()
+
 	doc := bluge.NewDocument("1").
 		AddField(bluge.NewTextField("filename", string("test")).StoreValue().HighlightMatches())
 
-	i := BlugeInstance()
 	err := i.Index(doc)
 	if err != nil {
 		t.Error(err)
 	}
 	if count, err := i.Count(); count != 1 {
 		t.Errorf("documents found: %d (%v)", count, err)
-	}
-	err = i.Close()
-	if err != nil {
-		t.Error(err)
 	}
 
 	doc = bluge.NewDocument("2").
@@ -32,17 +29,19 @@ func TestBlugeIndex(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	err = i.Close()
-	if err != nil {
-		t.Error(err)
-	}
 	if count, err := i.Count(); count != 2 {
 		t.Errorf("documents found: %d (%v)", count, err)
 	}
 }
 
 func TestBlugeGet(t *testing.T) {
-	i := BlugeInstance()
+	i := NewBlugeIndex("tmp/testblugeget.idx", 0)
+	i.Close()
+
+	doc := bluge.NewDocument("1").
+		AddField(bluge.NewTextField("filename", string("test")).StoreValue().HighlightMatches())
+	err := i.Index(doc)
+
 	match, err := i.Get("1")
 	if err != nil {
 		t.Error(err)
@@ -62,6 +61,7 @@ func TestBlugeGet(t *testing.T) {
 
 func TestBatchedWrites(t *testing.T) {
 	i := NewBlugeIndex("tmp/testbatched.idx", 3)
+	defer i.Close()
 
 	doc := bluge.NewDocument("1").
 		AddField(bluge.NewTextField("filename", "test").StoreValue().HighlightMatches())
@@ -101,6 +101,7 @@ func TestBatchedWrites(t *testing.T) {
 
 func TestBlugeSearch(t *testing.T) {
 	i := NewBlugeIndex("tmp/testsearch.idx", 0)
+	defer i.Close()
 	doc := bluge.NewDocument("1").
 		AddField(bluge.NewTextField("filename", "test").StoreValue().HighlightMatches())
 	err := i.Index(doc)
@@ -110,7 +111,7 @@ func TestBlugeSearch(t *testing.T) {
 
 	iter, err := i.Search("filename:test")
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
 	}
 	match, err := iter.Next()
 	if err != nil {
@@ -126,13 +127,23 @@ func TestBlugeSearch(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+}
 
-	// case insensitive search
-	iter, err = i.Search("filename:foobar")
+func TestCaseSensitivitySearch(t *testing.T) {
+	i := NewBlugeIndex("tmp/testcasesearch.idx", 0)
+	defer i.Close()
+	doc := bluge.NewDocument("1").
+		AddField(bluge.NewTextField("filename", "foobar").StoreValue().HighlightMatches())
+	err := i.Index(doc)
 	if err != nil {
 		t.Error(err)
 	}
-	match, err = iter.Next()
+	// case insensitive search
+	iter, err := i.Search("filename:foobar")
+	if err != nil {
+		t.Error(err)
+	}
+	match, err := iter.Next()
 	if err != nil {
 		t.Error(err)
 	}
@@ -152,24 +163,75 @@ func TestBlugeSearch(t *testing.T) {
 	if match == nil {
 		t.Error("should find a match")
 	}
+}
 
-	iter, err = i.Search("filename:dunno")
+func TestInvalidSearch(t *testing.T) {
+	i := NewBlugeIndex("tmp/testinvalidsearch.idx", 0)
+	defer i.Close()
+	doc := bluge.NewDocument("1").
+		AddField(bluge.NewTextField("filename", "test").StoreValue().HighlightMatches())
+	err := i.Index(doc)
 	if err != nil {
 		t.Error(err)
 	}
-	match, err = iter.Next()
+
+	iter, err := i.Search("filename:dunno")
+	if err != nil {
+		t.Error(err)
+	}
+	match, err := iter.Next()
 	if err != nil {
 		t.Error(err)
 	}
 	if match != nil {
 		t.Error("should not find a match")
 	}
+}
 
-	iter, err = i.Search("_id:2")
+func TestIDSearch(t *testing.T) {
+	i := NewBlugeIndex("tmp/testidsearch.idx", 0)
+	defer i.Close()
+	doc := bluge.NewDocument("1").
+		AddField(bluge.NewTextField("filename", "test").StoreValue().HighlightMatches())
+	err := i.Index(doc)
 	if err != nil {
 		t.Error(err)
 	}
-	match, err = iter.Next()
+
+	reader, err := i.OpenReader()
+	if err != nil {
+		t.Error(err)
+	}
+	defer reader.Close()
+
+	iter, err := i.SearchWithReader("filename:test", reader)
+	if err != nil {
+		t.Error(err)
+	}
+	match, err := iter.Next()
+	if err != nil {
+		t.Error(err)
+	}
+	if match == nil {
+		t.Error("should find a match")
+	}
+}
+
+func TestSearchWithReader(t *testing.T) {
+	i := NewBlugeIndex("tmp/searchwithreader.idx", 0)
+	defer i.Close()
+	doc := bluge.NewDocument("1").
+		AddField(bluge.NewTextField("filename", "test").StoreValue().HighlightMatches())
+	err := i.Index(doc)
+	if err != nil {
+		t.Error(err)
+	}
+
+	iter, err := i.Search("_id:1")
+	if err != nil {
+		t.Error(err)
+	}
+	match, err := iter.Next()
 	if err != nil {
 		t.Error(err)
 	}

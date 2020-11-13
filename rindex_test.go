@@ -68,7 +68,7 @@ func TestIndexWithEngine(t *testing.T) {
 		RepositoryLocation: "tmp/repo",
 		RepositoryPassword: "test",
 		Filter:             "*",
-		IndexEngine:        blugeindex.Init("tmp/test2.idx", 10),
+		IndexEngine:        blugeindex.NewBlugeIndex("tmp/test2.idx", 10),
 	}
 	stats, err := Index(idxOpts, progress)
 	if err != nil {

@@ -2,7 +2,6 @@ package blugeindex
 
 import (
 	"context"
-	"sync"
 
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/index"
@@ -21,26 +20,6 @@ type BlugeIndex struct {
 }
 
 const defaultBatchSize = 1000
-
-var bi *BlugeIndex
-var once sync.Once
-
-func Init(indexPath string, batchSize int) *BlugeIndex {
-	if bi != nil {
-		panic("blugindex already initialized")
-	}
-	once.Do(func() {
-		bi = NewBlugeIndex(indexPath, batchSize)
-	})
-	return bi
-}
-
-func BlugeInstance() *BlugeIndex {
-	if bi == nil {
-		panic("initialize blugeindex first")
-	}
-	return bi
-}
 
 func NewBlugeIndex(indexPath string, batchSize int) *BlugeIndex {
 	blugeConf := bluge.DefaultConfig(indexPath)
@@ -94,25 +73,6 @@ func (i *BlugeIndex) Index(doc *bluge.Document) error {
 		err = writer.Update(doc.ID(), doc)
 	}
 	return err
-}
-
-func (i *BlugeIndex) writeBatch() error {
-	if !i.IsDirty() {
-		return nil
-	}
-
-	writer, err := i.Writer()
-	if err != nil {
-		return err
-	}
-
-	err = writer.Batch(i.batch)
-	if err != nil {
-		return err
-	}
-	i.batch.Reset()
-	i.docsBatched = 0
-	return nil
 }
 
 func (i *BlugeIndex) Close() error {
@@ -184,14 +144,40 @@ func (i *BlugeIndex) Search(q string) (search.DocumentMatchIterator, error) {
 		return nil, err
 	}
 	defer reader.Close()
+	return i.SearchWithReader(q, reader)
+}
 
+func (i *BlugeIndex) SearchWithReader(q string, reader *bluge.Reader) (search.DocumentMatchIterator, error) {
 	if q == "*" {
 		q = "_id:*"
 	}
 
 	query, err := qs.ParseQueryString(q, qs.DefaultOptions())
+	if err != nil {
+		return nil, err
+	}
+
 	request := bluge.NewAllMatches(query).
 		WithStandardAggregations()
 
 	return reader.Search(context.Background(), request)
+}
+
+func (i *BlugeIndex) writeBatch() error {
+	if !i.IsDirty() {
+		return nil
+	}
+
+	writer, err := i.Writer()
+	if err != nil {
+		return err
+	}
+
+	err = writer.Batch(i.batch)
+	if err != nil {
+		return err
+	}
+	i.batch.Reset()
+	i.docsBatched = 0
+	return nil
 }
