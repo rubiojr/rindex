@@ -8,7 +8,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	os.Setenv("RESTIC_REPOSITORY", "testdata/repo")
+	os.Setenv("RESTIC_REPOSITORY", "tmp/repo")
 	os.Setenv("RESTIC_PASSWORD", "test")
 	os.Exit(m.Run())
 }
@@ -16,10 +16,10 @@ func TestMain(m *testing.M) {
 func TestIndexWithPath(t *testing.T) {
 	progress := make(chan IndexStats, 10)
 	idxOpts := &IndexOptions{
-		RepositoryLocation: "testdata/repo",
+		RepositoryLocation: "tmp/repo",
 		RepositoryPassword: "test",
 		Filter:             "*",
-		IndexPath:          "testdata/test.idx",
+		IndexPath:          "tmp/test.idx",
 		AppendFileMeta:     true,
 	}
 
@@ -28,13 +28,13 @@ func TestIndexWithPath(t *testing.T) {
 		t.Error(err)
 	}
 	if stats.IndexedNodes != 2 {
-		t.Errorf("%v", stats)
+		t.Errorf("%+v", stats)
 	}
 	if stats.ScannedNodes != 2 {
-		t.Errorf("%v", stats)
+		t.Errorf("%+v", stats)
 	}
 	if stats.ScannedTrees != 1 {
-		t.Errorf("%v", stats)
+		t.Errorf("%+v", stats)
 	}
 	if len(stats.Errors) != 0 {
 		t.Error("errors found while indexing")
@@ -65,25 +65,59 @@ func TestIndexWithPath(t *testing.T) {
 func TestIndexWithEngine(t *testing.T) {
 	progress := make(chan IndexStats, 10)
 	idxOpts := &IndexOptions{
-		RepositoryLocation: "testdata/repo",
+		RepositoryLocation: "tmp/repo",
 		RepositoryPassword: "test",
 		Filter:             "*",
-		IndexEngine:        blugeindex.Init("testdata/test2.idx", 10),
+		IndexEngine:        blugeindex.Init("tmp/test2.idx", 10),
 	}
 	stats, err := Index(idxOpts, progress)
 	if err != nil {
 		t.Error(err)
 	}
 	if stats.IndexedNodes != 2 {
-		t.Errorf("%v", stats)
+		t.Errorf("%+v", stats)
 	}
 	if stats.ScannedNodes != 2 {
-		t.Errorf("%v", stats)
+		t.Errorf("%+v", stats)
 	}
 	if stats.ScannedTrees != 1 {
-		t.Errorf("%v", stats)
+		t.Errorf("%+v", stats)
 	}
 	if len(stats.Errors) != 0 {
 		t.Error("errors found while indexing")
+	}
+}
+
+func TestIndexWithDefaultOptions(t *testing.T) {
+	progress := make(chan IndexStats, 10)
+	idxOpts := NewIndexOptions(
+		"tmp/repo",
+		"test",
+		"tmp/testwithdefopts.idx",
+		"*",
+	)
+	stats, err := Index(idxOpts, progress)
+	if err != nil {
+		t.Error(err)
+	}
+	if stats.IndexedNodes != 2 {
+		t.Errorf("%+v", stats)
+	}
+}
+
+func TestIndexWithUnbufferedProgress(t *testing.T) {
+	progress := make(chan IndexStats)
+	idxOpts := NewIndexOptions(
+		"tmp/repo",
+		"test",
+		"tmp/testwithunbuf.idx",
+		"*",
+	)
+	stats, err := Index(idxOpts, progress)
+	if err != nil {
+		t.Error(err)
+	}
+	if stats.IndexedNodes != 2 {
+		t.Errorf("%+v", stats)
 	}
 }

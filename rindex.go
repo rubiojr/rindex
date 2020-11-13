@@ -16,11 +16,6 @@ import (
 	"github.com/rubiojr/rindex/blugeindex"
 )
 
-// fileID is a 256-bit hash that distinguishes unique files.
-type FileID struct {
-	bytes [32]byte
-}
-
 type Indexer interface {
 	ShouldIndex(string, *blugeindex.BlugeIndex, *restic.Node, *repository.Repository) (*bluge.Document, bool)
 }
@@ -38,30 +33,6 @@ type IndexStats struct {
 	LastMatch      string
 }
 
-func NewFileID(bytes [32]byte) *FileID {
-	return &FileID{bytes: bytes}
-}
-
-func (id *FileID) String() string {
-	return fmt.Sprintf("%x", id.bytes)
-}
-
-func NodeFileID(node *restic.Node) *FileID {
-	var bb []byte
-	for _, c := range node.Content {
-		bb = append(bb, []byte(c[:])...)
-	}
-	return NewFileID(sha256.Sum256(bb))
-}
-
-func MarshalBlobIDs(ids restic.IDs) string {
-	j, err := json.Marshal(ids)
-	if err != nil {
-		panic(err)
-	}
-	return string(j)
-}
-
 type IndexOptions struct {
 	RepositoryLocation string
 	RepositoryPassword string
@@ -74,10 +45,21 @@ type IndexOptions struct {
 
 func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
 	indexer := NewFileIndexer()
-	return CustomIndex(opts, indexer, progress)
+	return IndexWithIndexer(opts, indexer, progress)
 }
 
-func CustomIndex(opts *IndexOptions, indexer Indexer, progress chan IndexStats) (IndexStats, error) {
+func NewIndexOptions(repoLocation, repoPassword, indexPath, filter string) *IndexOptions {
+	return &IndexOptions{
+		RepositoryLocation: repoLocation,
+		RepositoryPassword: repoPassword,
+		IndexPath:          indexPath,
+		IndexEngine:        blugeindex.NewBlugeIndex(indexPath, 0),
+		Filter:             filter,
+		AppendFileMeta:     true,
+	}
+}
+
+func IndexWithIndexer(opts *IndexOptions, indexer Indexer, progress chan IndexStats) (IndexStats, error) {
 	var bindex *blugeindex.BlugeIndex
 	if opts.IndexEngine != nil {
 		bindex = opts.IndexEngine
@@ -121,13 +103,16 @@ func CustomIndex(opts *IndexOptions, indexer Indexer, progress chan IndexStats) 
 		for _, node := range tree.Nodes {
 			stats.ScannedNodes++
 			stats.LastScanned = node.Name
-			progress <- stats
+			select {
+			case progress <- stats:
+			default:
+			}
 			if node.Type != "file" {
 				stats.NonFileNodes++
 				continue
 			}
-			fileID := NodeFileID(node)
-			if match, err := bindex.Get(fileID.String()); match != nil {
+			fileID := fmt.Sprintf("%x", nodeFileID(node))
+			if match, err := bindex.Get(fileID); match != nil {
 				if err != nil {
 					stats.Errors = append(stats.Errors, err)
 				} else {
@@ -145,13 +130,13 @@ func CustomIndex(opts *IndexOptions, indexer Indexer, progress chan IndexStats) 
 				continue
 			}
 			stats.LastMatch = node.Name
-			if doc, ok := indexer.ShouldIndex(fileID.String(), bindex, node, repo); ok {
+			if doc, ok := indexer.ShouldIndex(fileID, bindex, node, repo); ok {
 				if opts.AppendFileMeta {
 					doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue().HighlightMatches()).
 						AddField(bluge.NewTextField("repository_location", repo.Backend().Location()).StoreValue().HighlightMatches()).
 						AddField(bluge.NewTextField("repository_id", repo.Config().ID).StoreValue().HighlightMatches()).
 						AddField(bluge.NewDateTimeField("mod_time", node.ModTime).StoreValue().HighlightMatches()).
-						AddField(bluge.NewTextField("blobs", MarshalBlobIDs(node.Content)).StoreValue())
+						AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue())
 				}
 				err = bindex.Index(doc)
 				if err != nil {
@@ -164,4 +149,20 @@ func CustomIndex(opts *IndexOptions, indexer Indexer, progress chan IndexStats) 
 	}
 
 	return stats, bindex.Close()
+}
+
+func nodeFileID(node *restic.Node) [32]byte {
+	var bb []byte
+	for _, c := range node.Content {
+		bb = append(bb, []byte(c[:])...)
+	}
+	return sha256.Sum256(bb)
+}
+
+func marshalBlobIDs(ids restic.IDs) string {
+	j, err := json.Marshal(ids)
+	if err != nil {
+		panic(err)
+	}
+	return string(j)
 }

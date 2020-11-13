@@ -7,7 +7,7 @@ import (
 )
 
 func TestBlugeIndex(t *testing.T) {
-	Init("testdata/test.idx", 1)
+	Init("tmp/test.idx", 1)
 	doc := bluge.NewDocument("1").
 		AddField(bluge.NewTextField("filename", string("test")).StoreValue().HighlightMatches())
 
@@ -61,7 +61,7 @@ func TestBlugeGet(t *testing.T) {
 }
 
 func TestBatchedWrites(t *testing.T) {
-	i := NewBlugeIndex("testdata/testbatched.idx", 3)
+	i := NewBlugeIndex("tmp/testbatched.idx", 3)
 
 	doc := bluge.NewDocument("1").
 		AddField(bluge.NewTextField("filename", string("test")).StoreValue().HighlightMatches())
