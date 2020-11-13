@@ -7,6 +7,7 @@ import (
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/index"
 	"github.com/blugelabs/bluge/search"
+	qs "github.com/blugelabs/query_string"
 )
 
 type BlugeIndex struct {
@@ -175,4 +176,22 @@ func (i *BlugeIndex) Get(id string) (*search.DocumentMatch, error) {
 	}
 
 	return documentMatchIterator.Next()
+}
+
+func (i *BlugeIndex) Search(q string) (search.DocumentMatchIterator, error) {
+	reader, err := i.Reader()
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	if q == "*" {
+		q = "_id:*"
+	}
+
+	query, err := qs.ParseQueryString(q, qs.DefaultOptions())
+	request := bluge.NewAllMatches(query).
+		WithStandardAggregations()
+
+	return reader.Search(context.Background(), request)
 }

@@ -64,14 +64,14 @@ func TestBatchedWrites(t *testing.T) {
 	i := NewBlugeIndex("tmp/testbatched.idx", 3)
 
 	doc := bluge.NewDocument("1").
-		AddField(bluge.NewTextField("filename", string("test")).StoreValue().HighlightMatches())
+		AddField(bluge.NewTextField("filename", "test").StoreValue().HighlightMatches())
 	err := i.Index(doc)
 	if err != nil {
 		t.Error(err)
 	}
 
 	doc2 := bluge.NewDocument("2").
-		AddField(bluge.NewTextField("filename", string("test2")).StoreValue().HighlightMatches())
+		AddField(bluge.NewTextField("filename", "test2").StoreValue().HighlightMatches())
 	err = i.Index(doc2)
 	if err != nil {
 		t.Error(err)
@@ -96,5 +96,84 @@ func TestBatchedWrites(t *testing.T) {
 
 	if count, err := i.Count(); count != 2 {
 		t.Errorf("should have two documents in the index, found %d. %v", count, err)
+	}
+}
+
+func TestBlugeSearch(t *testing.T) {
+	i := NewBlugeIndex("tmp/testsearch.idx", 0)
+	doc := bluge.NewDocument("1").
+		AddField(bluge.NewTextField("filename", "test").StoreValue().HighlightMatches())
+	err := i.Index(doc)
+	if err != nil {
+		t.Error(err)
+	}
+
+	iter, err := i.Search("filename:test")
+	if err != nil {
+		t.Error(err)
+	}
+	match, err := iter.Next()
+	if err != nil {
+		t.Error(err)
+	}
+	if match == nil {
+		t.Error("should find a match")
+	}
+
+	doc = bluge.NewDocument("2").
+		AddField(bluge.NewTextField("filename", "Foobar").StoreValue())
+	err = i.Index(doc)
+	if err != nil {
+		t.Error(err)
+	}
+
+	// case insensitive search
+	iter, err = i.Search("filename:foobar")
+	if err != nil {
+		t.Error(err)
+	}
+	match, err = iter.Next()
+	if err != nil {
+		t.Error(err)
+	}
+	if match == nil {
+		t.Error("should find a match")
+	}
+
+	// case sensitive search
+	iter, err = i.Search("filename:Foobar")
+	if err != nil {
+		t.Error(err)
+	}
+	match, err = iter.Next()
+	if err != nil {
+		t.Error(err)
+	}
+	if match == nil {
+		t.Error("should find a match")
+	}
+
+	iter, err = i.Search("filename:dunno")
+	if err != nil {
+		t.Error(err)
+	}
+	match, err = iter.Next()
+	if err != nil {
+		t.Error(err)
+	}
+	if match != nil {
+		t.Error("should not find a match")
+	}
+
+	iter, err = i.Search("_id:2")
+	if err != nil {
+		t.Error(err)
+	}
+	match, err = iter.Next()
+	if err != nil {
+		t.Error(err)
+	}
+	if match == nil {
+		t.Error("should find a match")
 	}
 }
