@@ -41,33 +41,38 @@ type IndexOptions struct {
 	BatchSize          int
 	IndexEngine        *blugeindex.BlugeIndex
 	AppendFileMeta     bool
+	Indexer            Indexer
 }
 
-func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
-	indexer := NewFileIndexer()
-	return IndexWithIndexer(opts, indexer, progress)
+func (opts *IndexOptions) setDefaults() {
+	if opts.Indexer == nil {
+		opts.Indexer = NewFileIndexer()
+	}
+	if opts.Filter == "" {
+		opts.Filter = "*"
+	}
+	if opts.IndexEngine == nil {
+		opts.IndexEngine = blugeindex.NewBlugeIndex(opts.IndexPath, opts.BatchSize)
+	}
 }
 
-func NewIndexOptions(repoLocation, repoPassword, indexPath, filter string) *IndexOptions {
+func NewIndexOptions(repoLocation, repoPassword, indexPath string) *IndexOptions {
 	return &IndexOptions{
 		RepositoryLocation: repoLocation,
 		RepositoryPassword: repoPassword,
 		IndexPath:          indexPath,
 		IndexEngine:        blugeindex.NewBlugeIndex(indexPath, 0),
-		Filter:             filter,
+		Filter:             "*",
 		AppendFileMeta:     true,
+		Indexer:            NewFileIndexer(),
 	}
 }
 
-func IndexWithIndexer(opts *IndexOptions, indexer Indexer, progress chan IndexStats) (IndexStats, error) {
-	var bindex *blugeindex.BlugeIndex
-	if opts.IndexEngine != nil {
-		bindex = opts.IndexEngine
-	} else if opts.IndexPath != "" {
-		bindex = blugeindex.NewBlugeIndex(opts.IndexPath, opts.BatchSize)
-	} else {
-		return IndexStats{}, errors.New("missing IndexEngine or IndexPath")
+func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
+	if opts.IndexPath == "" && opts.IndexEngine == nil {
+		return IndexStats{}, errors.New("missing IndexPath")
 	}
+	opts.setDefaults()
 
 	ropts := rapi.DefaultOptions
 	ropts.Password = opts.RepositoryPassword
@@ -107,12 +112,14 @@ func IndexWithIndexer(opts *IndexOptions, indexer Indexer, progress chan IndexSt
 			case progress <- stats:
 			default:
 			}
+
 			if node.Type != "file" {
 				stats.NonFileNodes++
 				continue
 			}
+
 			fileID := fmt.Sprintf("%x", nodeFileID(node))
-			if match, err := bindex.Get(fileID); match != nil {
+			if match, err := opts.IndexEngine.Get(fileID); match != nil {
 				if err != nil {
 					stats.Errors = append(stats.Errors, err)
 				} else {
@@ -120,17 +127,20 @@ func IndexWithIndexer(opts *IndexOptions, indexer Indexer, progress chan IndexSt
 				}
 				continue
 			}
+
 			match, err := filepath.Match(opts.Filter, strings.ToLower(node.Name))
 			if err != nil {
 				stats.Errors = append(stats.Errors, err)
 				continue
 			}
+
 			if !match {
 				stats.Mismatch++
 				continue
 			}
 			stats.LastMatch = node.Name
-			if doc, ok := indexer.ShouldIndex(fileID, bindex, node, repo); ok {
+
+			if doc, ok := opts.Indexer.ShouldIndex(fileID, opts.IndexEngine, node, repo); ok {
 				if opts.AppendFileMeta {
 					doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue().HighlightMatches()).
 						AddField(bluge.NewTextField("repository_location", repo.Backend().Location()).StoreValue().HighlightMatches()).
@@ -138,7 +148,7 @@ func IndexWithIndexer(opts *IndexOptions, indexer Indexer, progress chan IndexSt
 						AddField(bluge.NewDateTimeField("mod_time", node.ModTime).StoreValue().HighlightMatches()).
 						AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue())
 				}
-				err = bindex.Index(doc)
+				err = opts.IndexEngine.Index(doc)
 				if err != nil {
 					stats.Errors = append(stats.Errors, err)
 				} else {
@@ -148,7 +158,7 @@ func IndexWithIndexer(opts *IndexOptions, indexer Indexer, progress chan IndexSt
 		}
 	}
 
-	return stats, bindex.Close()
+	return stats, opts.IndexEngine.Close()
 }
 
 func nodeFileID(node *restic.Node) [32]byte {

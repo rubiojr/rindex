@@ -94,7 +94,6 @@ func TestIndexWithDefaultOptions(t *testing.T) {
 		"tmp/repo",
 		"test",
 		"tmp/testwithdefopts.idx",
-		"*",
 	)
 	stats, err := Index(idxOpts, progress)
 	if err != nil {
@@ -111,7 +110,6 @@ func TestIndexWithUnbufferedProgress(t *testing.T) {
 		"tmp/repo",
 		"test",
 		"tmp/testwithunbuf.idx",
-		"*",
 	)
 	stats, err := Index(idxOpts, progress)
 	if err != nil {
