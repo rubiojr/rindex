@@ -16,10 +16,13 @@ import (
 	"github.com/rubiojr/rindex/blugeindex"
 )
 
+// Indexer is the interface custom indexers should implement
 type Indexer interface {
 	ShouldIndex(string, *blugeindex.BlugeIndex, *restic.Node, *repository.Repository) (*bluge.Document, bool)
 }
 
+// IndexStats is returned every time an new document is indexed or when
+// the indexing process finishes.
 type IndexStats struct {
 	TreeBlobs      int64
 	Errors         []error
@@ -33,6 +36,7 @@ type IndexStats struct {
 	LastMatch      string
 }
 
+// IndexOptions to be passed to Index
 type IndexOptions struct {
 	RepositoryLocation string
 	RepositoryPassword string
@@ -44,13 +48,21 @@ type IndexOptions struct {
 	Indexer            Indexer
 }
 
+// SearchResult is returned for every search hit during a search process
 type SearchResult map[string][]byte
 
+// SearchOptions to be passed to the Search function
 type SearchOptions struct {
 	MaxResults int64
 }
 
 const searchDefaultMaxResults = 100
+
+func (opts *SearchOptions) setDefaults() {
+	if opts.MaxResults == 0 {
+		opts.MaxResults = searchDefaultMaxResults
+	}
+}
 
 var DefaultSearchOptions = &SearchOptions{
 	MaxResults: searchDefaultMaxResults,
@@ -174,9 +186,7 @@ func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
 }
 
 func Search(ctx context.Context, indexPath string, query string, opts *SearchOptions) ([]SearchResult, error) {
-	if opts.MaxResults == 0 {
-		opts.MaxResults = searchDefaultMaxResults
-	}
+	opts.setDefaults()
 
 	idx := blugeindex.NewBlugeIndex(indexPath, 0)
 
