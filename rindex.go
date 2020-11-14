@@ -44,6 +44,18 @@ type IndexOptions struct {
 	Indexer            Indexer
 }
 
+type SearchResult map[string][]byte
+
+type SearchOptions struct {
+	MaxResults int64
+}
+
+const searchDefaultMaxResults = 100
+
+var DefaultSearchOptions = &SearchOptions{
+	MaxResults: searchDefaultMaxResults,
+}
+
 func (opts *IndexOptions) setDefaults() {
 	if opts.Indexer == nil {
 		opts.Indexer = NewFileIndexer()
@@ -159,6 +171,46 @@ func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
 	}
 
 	return stats, opts.IndexEngine.Close()
+}
+
+func Search(ctx context.Context, indexPath string, query string, opts *SearchOptions) ([]SearchResult, error) {
+	if opts.MaxResults == 0 {
+		opts.MaxResults = searchDefaultMaxResults
+	}
+
+	idx := blugeindex.NewBlugeIndex(indexPath, 0)
+
+	reader, err := idx.OpenReader()
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	iter, err := idx.SearchWithReader(query, reader)
+	if err != nil {
+		return nil, err
+	}
+
+	results := []SearchResult{}
+	match, err := iter.Next()
+	count := int64(0)
+	for err == nil && match != nil {
+		if count >= opts.MaxResults {
+			break
+		}
+		result := SearchResult{}
+		err = match.VisitStoredFields(func(field string, value []byte) bool {
+			result[field] = value
+			return true
+		})
+		if err == nil && len(result) > 0 {
+			results = append(results, result)
+		}
+		count++
+		match, err = iter.Next()
+	}
+
+	return results, err
 }
 
 func nodeFileID(node *restic.Node) [32]byte {
