@@ -179,6 +179,10 @@ func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
 				} else {
 					stats.IndexedNodes++
 				}
+				err = opts.IndexEngine.Close()
+				if err != nil {
+					stats.Errors = append(stats.Errors, fmt.Errorf("error closing the index: %+v", err))
+				}
 			}
 		}
 	}
