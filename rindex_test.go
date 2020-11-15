@@ -158,6 +158,39 @@ func TestSearch(t *testing.T) {
 	}
 }
 
+func TestSearchComposite(t *testing.T) {
+	idx := blugeindex.NewBlugeIndex("tmp/testsearchcompo.idx", 0)
+
+	doc := bluge.NewDocument("1").
+		AddField(bluge.NewTextField("filename", "foobar").StoreValue()).
+		AddField(bluge.NewTextField("stuff", "bar").StoreValue()).
+		AddField(bluge.NewCompositeFieldExcluding("_all", nil))
+	err := idx.Index(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx.Close()
+
+	results, err := Search(context.Background(), "tmp/testsearchcompo.idx", "foobar", DefaultSearchOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Error("should find only one result")
+	}
+
+	results, err = Search(context.Background(), "tmp/testsearchcompo.idx", "bar", DefaultSearchOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 {
+		t.Error("should find only one result")
+	}
+	if string(results[0]["stuff"]) != "bar" {
+		t.Error("invalid search result")
+	}
+}
+
 func TestSearchMaxResults(t *testing.T) {
 	idx := blugeindex.NewBlugeIndex("tmp/testsearchmax.idx", 0)
 	defer idx.Close()

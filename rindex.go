@@ -166,11 +166,12 @@ func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
 
 			if doc, ok := opts.Indexer.ShouldIndex(fileID, opts.IndexEngine, node, repo); ok {
 				if opts.AppendFileMeta {
-					doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue().HighlightMatches()).
-						AddField(bluge.NewTextField("repository_location", repo.Backend().Location()).StoreValue().HighlightMatches()).
-						AddField(bluge.NewTextField("repository_id", repo.Config().ID).StoreValue().HighlightMatches()).
-						AddField(bluge.NewDateTimeField("mod_time", node.ModTime).StoreValue().HighlightMatches()).
-						AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue())
+					doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue()).
+						AddField(bluge.NewTextField("repository_location", repo.Backend().Location()).StoreValue()).
+						AddField(bluge.NewTextField("repository_id", repo.Config().ID).StoreValue()).
+						AddField(bluge.NewDateTimeField("mod_time", node.ModTime).StoreValue()).
+						AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue()).
+						AddField(bluge.NewCompositeFieldExcluding("_all", nil))
 				}
 				err = opts.IndexEngine.Index(doc)
 				if err != nil {
