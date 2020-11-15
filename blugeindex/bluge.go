@@ -2,6 +2,7 @@ package blugeindex
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/index"
@@ -91,46 +92,24 @@ func (i *BlugeIndex) Close() error {
 	return err
 }
 
-func (i *BlugeIndex) Count() (int64, error) {
-	query := bluge.NewWildcardQuery("*").SetField("_id")
-
-	request := bluge.NewAllMatches(query)
-
-	reader, err := i.Reader()
-	if err != nil {
-		return 0, err
-	}
-	defer reader.Close()
-
-	documentMatchIterator, err := reader.Search(context.Background(), request)
+func (i *BlugeIndex) Count() (uint64, error) {
+	documentMatchIterator, err := i.Search("_id:*")
 	if err != nil {
 		return 0, err
 	}
 
-	var count int64
-	count = 0
 	match, err := documentMatchIterator.Next()
+	count := uint64(0)
 	for err == nil && match != nil {
 		count++
 		match, err = documentMatchIterator.Next()
 	}
 
-	return count, err
+	return count, nil
 }
 
 func (i *BlugeIndex) Get(id string) (*search.DocumentMatch, error) {
-	var err error
-
-	query := bluge.NewWildcardQuery(id).SetField("_id")
-	request := bluge.NewAllMatches(query)
-
-	reader, err := i.Reader()
-	if err != nil {
-		return nil, err
-	}
-	defer reader.Close()
-
-	documentMatchIterator, err := reader.Search(context.Background(), request)
+	documentMatchIterator, err := i.Search(fmt.Sprintf("_id:%s", id))
 	if err != nil {
 		return nil, err
 	}
