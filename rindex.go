@@ -144,6 +144,7 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 			fileID := fmt.Sprintf("%x", nodeFileID(node))
 
 			if _, ok := hcache.Get(fileID); ok {
+				stats.AlreadyIndexed++
 				continue
 			}
 			hcache.Add(fileID, 0)
@@ -153,6 +154,7 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 				stats.Errors = append(stats.Errors, err)
 				continue
 			}
+
 			if match != nil {
 				stats.AlreadyIndexed++
 				continue
