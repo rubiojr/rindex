@@ -5,11 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/blugelabs/bluge"
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/rubiojr/rapi"
 	"github.com/rubiojr/rapi/repository"
 	"github.com/rubiojr/rapi/restic"
@@ -111,7 +111,14 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 		}
 	}
 
-	done := map[string]bool{}
+	csize := opts.BatchSize
+	if csize == 0 {
+		csize = 1
+	}
+	hcache, err := lru.New(int(csize))
+	if err != nil {
+		panic(err)
+	}
 	for _, blob := range treeBlobs {
 		stats.ScannedTrees++
 		repo.LoadBlob(ctx, restic.TreeBlob, blob, nil)
@@ -135,6 +142,12 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 			}
 
 			fileID := fmt.Sprintf("%x", nodeFileID(node))
+
+			if _, ok := hcache.Get(fileID); ok {
+				continue
+			}
+			hcache.Add(fileID, 0)
+
 			match, err := i.IndexEngine.Get(fileID)
 			if err != nil {
 				stats.Errors = append(stats.Errors, err)
@@ -144,11 +157,6 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 				stats.AlreadyIndexed++
 				continue
 			}
-
-			if _, ok := done[fileID]; ok {
-				fmt.Fprintf(os.Stderr, "WARN: we are indexing a dupe")
-			}
-			done[fileID] = true
 
 			fmatch, err := filepath.Match(opts.Filter, strings.ToLower(node.Name))
 			if err != nil {
