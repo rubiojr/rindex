@@ -2,7 +2,6 @@ package blugeindex
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/index"
@@ -101,28 +100,46 @@ func (i *BlugeIndex) Close() error {
 }
 
 func (i *BlugeIndex) Count() (uint64, error) {
-	documentMatchIterator, err := i.Search("_id:*")
+	reader, err := i.Reader()
+	if err != nil {
+		return 0, err
+	}
+	defer reader.Close()
+
+	query := bluge.NewMatchAllQuery()
+	request := bluge.NewAllMatches(query)
+
+	iter, err := reader.Search(context.Background(), request)
 	if err != nil {
 		return 0, err
 	}
 
-	match, err := documentMatchIterator.Next()
+	match, err := iter.Next()
 	count := uint64(0)
 	for err == nil && match != nil {
 		count++
-		match, err = documentMatchIterator.Next()
+		match, err = iter.Next()
 	}
 
 	return count, nil
 }
 
 func (i *BlugeIndex) Get(id string) (*search.DocumentMatch, error) {
-	documentMatchIterator, err := i.Search(fmt.Sprintf("_id:%s", id))
+	reader, err := i.Reader()
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+
+	query := bluge.NewMatchQuery(id).SetField("_id")
+	request := bluge.NewTopNSearch(1, query)
+
+	iter, err := reader.Search(context.Background(), request)
 	if err != nil {
 		return nil, err
 	}
 
-	return documentMatchIterator.Next()
+	return iter.Next()
 }
 
 func (i *BlugeIndex) Search(q string) (search.DocumentMatchIterator, error) {

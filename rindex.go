@@ -162,6 +162,7 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 						AddField(bluge.NewTextField("repository_id", repo.Config().ID).StoreValue()).
 						AddField(bluge.NewDateTimeField("mod_time", node.ModTime).StoreValue()).
 						AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue()).
+						AddField(bluge.NewTextField("parent_tree", blob.String()).StoreValue()).
 						AddField(bluge.NewCompositeFieldExcluding("_all", nil))
 				}
 				err = i.IndexEngine.Index(doc)
