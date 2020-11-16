@@ -135,63 +135,67 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 			case progress <- stats:
 			default:
 			}
-
-			if node.Type != "file" {
-				stats.NonFileNodes++
-				continue
-			}
-
-			fileID := fmt.Sprintf("%x", nodeFileID(node))
-
-			if _, ok := hcache.Get(fileID); ok {
-				stats.AlreadyIndexed++
-				continue
-			}
-			hcache.Add(fileID, 0)
-
-			match, err := i.IndexEngine.Get(fileID)
-			if err != nil {
-				stats.Errors = append(stats.Errors, err)
-				continue
-			}
-
-			if match != nil {
-				stats.AlreadyIndexed++
-				continue
-			}
-
-			fmatch, err := filepath.Match(opts.Filter, strings.ToLower(node.Name))
-			if err != nil {
-				stats.Errors = append(stats.Errors, err)
-				continue
-			}
-
-			if !fmatch {
-				stats.Mismatch++
-				continue
-			}
-			stats.LastMatch = node.Name
-
-			if doc, ok := opts.DocumentBuilder.ShouldIndex(fileID, *i.IndexEngine, node, repo); ok {
-				if opts.AppendFileMeta {
-					doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue()).
-						AddField(bluge.NewTextField("repository_id", repoID).StoreValue()).
-						AddField(bluge.NewDateTimeField("mod_time", node.ModTime).StoreValue()).
-						AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue()).
-						AddField(bluge.NewTextField("parent_tree", blob.String()).StoreValue()).
-						AddField(bluge.NewCompositeFieldExcluding("_all", nil))
-				}
-				err = i.IndexEngine.Index(doc)
-				if err != nil {
-					stats.Errors = append(stats.Errors, err)
-				} else {
-					stats.IndexedNodes++
-				}
-			}
+			i.scanNode(repo, blob, repoID, opts, hcache, node, &stats)
 		}
 	}
 
 	return stats, i.IndexEngine.Close()
+}
+
+func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID string, opts IndexOptions, hcache *lru.Cache, node *restic.Node, stats *IndexStats) {
+	if node.Type != "file" {
+		stats.NonFileNodes++
+		return
+	}
+
+	fileID := fmt.Sprintf("%x", nodeFileID(node))
+
+	if _, ok := hcache.Get(fileID); ok {
+		stats.AlreadyIndexed++
+		return
+	}
+	hcache.Add(fileID, 0)
+
+	match, err := i.IndexEngine.Get(fileID)
+	if err != nil {
+		stats.Errors = append(stats.Errors, err)
+		return
+	}
+
+	if match != nil {
+		stats.AlreadyIndexed++
+		return
+	}
+
+	fmatch, err := filepath.Match(opts.Filter, strings.ToLower(node.Name))
+	if err != nil {
+		stats.Errors = append(stats.Errors, err)
+		return
+	}
+
+	if !fmatch {
+		stats.Mismatch++
+		return
+	}
+
+	stats.LastMatch = node.Name
+
+	if doc, ok := opts.DocumentBuilder.ShouldIndex(fileID, *i.IndexEngine, node, repo); ok {
+		if opts.AppendFileMeta {
+			doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue()).
+				AddField(bluge.NewTextField("repository_id", repoID).StoreValue()).
+				AddField(bluge.NewDateTimeField("mod_time", node.ModTime).StoreValue()).
+				AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue()).
+				AddField(bluge.NewTextField("parent_tree", blob.String()).StoreValue()).
+				AddField(bluge.NewCompositeFieldExcluding("_all", nil))
+		}
+		err = i.IndexEngine.Index(doc)
+		if err != nil {
+			stats.Errors = append(stats.Errors, err)
+		} else {
+			stats.IndexedNodes++
+		}
+	}
 }
 
 func (i Indexer) Search(ctx context.Context, query string, visitor func(string, []byte) bool, opts SearchOptions) (uint64, error) {
@@ -213,6 +217,7 @@ func (i Indexer) Search(ctx context.Context, query string, visitor func(string, 
 		return 0, err
 	}
 
+	//TODO: use a channel instead of the visitor argument and send a result once we've visited all the fields
 	var count uint64
 	match, err := iter.Next()
 	for err == nil && match != nil {
