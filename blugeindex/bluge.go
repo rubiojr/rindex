@@ -138,13 +138,13 @@ func (i *BlugeIndex) Get(id string) (*search.DocumentMatch, error) {
 	return iter.Next()
 }
 
-func (i *BlugeIndex) Search(q string) (search.DocumentMatchIterator, error) {
+func (i *BlugeIndex) Search(q string, field string) (search.DocumentMatchIterator, error) {
 	reader, err := i.Reader()
 	if err != nil {
 		return nil, err
 	}
 	defer reader.Close()
-	return i.SearchWithReader(q, reader)
+	return i.SearchWithReader(q, field, reader)
 }
 
 // Warning: search queries with a large number of arguments can eat all your memory
@@ -173,7 +173,7 @@ func (i *BlugeIndex) searchWithReaderAndQuery(q string, reader *bluge.Reader) (s
 	return reader.Search(context.Background(), request)
 }
 
-func (i *BlugeIndex) SearchWithReader(q string, reader *bluge.Reader) (search.DocumentMatchIterator, error) {
+func (i *BlugeIndex) SearchWithReader(q string, field string, reader *bluge.Reader) (search.DocumentMatchIterator, error) {
 	query := bluge.NewMatchQuery(q)
 	request := bluge.NewTopNSearch(100, query)
 	return reader.Search(context.Background(), request)

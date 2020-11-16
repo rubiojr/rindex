@@ -53,7 +53,8 @@ type SearchResult map[string][]byte
 
 // SearchOptions to be passed to the Search function
 type SearchOptions struct {
-	MaxResults int64
+	MaxResults  int64
+	SearchField string
 }
 
 type Indexer struct {
@@ -216,7 +217,7 @@ func (i Indexer) Search(ctx context.Context, query string, opts SearchOptions) (
 	}
 	defer reader.Close()
 
-	iter, err := idx.SearchWithReader(query, reader)
+	iter, err := idx.SearchWithReader(query, opts.SearchField, reader)
 	if err != nil {
 		return nil, err
 	}

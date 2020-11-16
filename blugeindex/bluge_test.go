@@ -111,7 +111,7 @@ func TestBlugeSearch(t *testing.T) {
 	}
 	i.Close()
 
-	iter, err := i.Search("test")
+	iter, err := i.Search("test", "filename")
 	if err != nil {
 		t.Fatal(err)
 	}
