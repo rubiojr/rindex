@@ -175,6 +175,9 @@ func (i *BlugeIndex) searchWithReaderAndQuery(q string, reader *bluge.Reader) (s
 
 func (i *BlugeIndex) SearchWithReader(q string, field string, reader *bluge.Reader) (search.DocumentMatchIterator, error) {
 	query := bluge.NewMatchQuery(q)
+	if field != "" {
+		query = query.SetField(field)
+	}
 	request := bluge.NewTopNSearch(100, query)
 	return reader.Search(context.Background(), request)
 }
