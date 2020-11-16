@@ -113,11 +113,8 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 		}
 	}
 
-	csize := opts.BatchSize
-	if csize == 0 {
-		csize = 1
-	}
-	hcache, err := lru.New(int(csize) + 1)
+	csize := opts.BatchSize + 10
+	hcache, err := lru.New(int(csize))
 	if err != nil {
 		panic(err)
 	}
