@@ -2,6 +2,7 @@ package blugeindex
 
 import (
 	"context"
+	"strings"
 
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/index"
@@ -126,7 +127,10 @@ func (i *BlugeIndex) Count() (uint64, error) {
 }
 
 func (i *BlugeIndex) Get(id string) (*search.DocumentMatch, error) {
-	iter, err := i.SearchWithQuery("_id:" + id)
+	var sb strings.Builder
+	sb.WriteString("_id:")
+	sb.WriteString(id)
+	iter, err := i.SearchWithQuery(sb.String())
 	if err != nil {
 		return nil, err
 	}
