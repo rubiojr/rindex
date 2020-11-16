@@ -126,9 +126,7 @@ func (i *BlugeIndex) Count() (uint64, error) {
 }
 
 func (i *BlugeIndex) Get(id string) (*search.DocumentMatch, error) {
-	b := []byte("_id:")
-	b = append(b, []byte(id)...)
-	iter, err := i.SearchWithQuery(string(b))
+	iter, err := i.SearchWithQuery("_id:" + id)
 	if err != nil {
 		return nil, err
 	}
