@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -120,7 +119,6 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 		panic(err)
 	}
 
-	done := map[string]bool{}
 	for _, blob := range treeBlobs {
 		stats.ScannedTrees++
 		repo.LoadBlob(ctx, restic.TreeBlob, blob, nil)
@@ -161,11 +159,6 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 				stats.AlreadyIndexed++
 				continue
 			}
-
-			if _, ok := done[fileID]; ok {
-				fmt.Fprintf(os.Stderr, "WARN: already indexed\n")
-			}
-			done[fileID] = true
 
 			fmatch, err := filepath.Match(opts.Filter, strings.ToLower(node.Name))
 			if err != nil {
