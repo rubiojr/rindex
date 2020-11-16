@@ -38,10 +38,12 @@ type IndexStats struct {
 
 // IndexOptions to be passed to Index
 type IndexOptions struct {
-	Filter          string
-	BatchSize       uint
-	AppendFileMeta  bool
-	DocumentBuilder DocumentBuilder
+	RepositoryLocation string
+	RepositoryPassword string
+	Filter             string
+	BatchSize          uint
+	AppendFileMeta     bool
+	DocumentBuilder    DocumentBuilder
 }
 
 // SearchResult is returned for every search hit during a search process
@@ -53,10 +55,8 @@ type SearchOptions struct {
 }
 
 type Indexer struct {
-	RepositoryLocation string
-	RepositoryPassword string
-	IndexPath          string
-	IndexEngine        *blugeindex.BlugeIndex
+	IndexPath   string
+	IndexEngine *blugeindex.BlugeIndex
 }
 
 const searchDefaultMaxResults = 100
@@ -72,12 +72,10 @@ var DefaultIndexOptions = IndexOptions{
 	DocumentBuilder: FileDocumentBuilder{},
 }
 
-func New(indexPath, repoLocation, repoPass string) Indexer {
+func New(indexPath string) Indexer {
 	return Indexer{
-		RepositoryLocation: repoLocation,
-		RepositoryPassword: repoPass,
-		IndexEngine:        blugeindex.NewBlugeIndex(indexPath, 1),
-		IndexPath:          indexPath,
+		IndexEngine: blugeindex.NewBlugeIndex(indexPath, 1),
+		IndexPath:   indexPath,
 	}
 }
 
@@ -91,8 +89,8 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 	i.IndexEngine.SetBatchSize(opts.BatchSize)
 
 	ropts := rapi.DefaultOptions
-	ropts.Password = i.RepositoryPassword
-	ropts.Repo = i.RepositoryLocation
+	ropts.Password = opts.RepositoryPassword
+	ropts.Repo = opts.RepositoryLocation
 	repo, err := rapi.OpenRepository(ropts)
 	if err != nil {
 		return IndexStats{}, err

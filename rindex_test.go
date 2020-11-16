@@ -26,10 +26,12 @@ func TestMain(m *testing.M) {
 
 func TestSetBatchSize(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx := New(indexPath(), "tmp/repo", "test")
+	idx := New(indexPath())
 	idxOpts := IndexOptions{
-		Filter:    "*",
-		BatchSize: 10,
+		Filter:             "*",
+		BatchSize:          10,
+		RepositoryLocation: "tmp/repo",
+		RepositoryPassword: "test",
 	}
 	_, _ = idx.Index(context.Background(), idxOpts, progress)
 	if idx.IndexEngine.BatchSize != 10 {
@@ -39,9 +41,11 @@ func TestSetBatchSize(t *testing.T) {
 
 func TestIndexWithPath(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx := New(indexPath(), "tmp/repo", "test")
+	idx := New(indexPath())
 	idxOpts := IndexOptions{
-		Filter: "*",
+		Filter:             "*",
+		RepositoryLocation: "tmp/repo",
+		RepositoryPassword: "test",
 	}
 
 	stats, err := idx.Index(context.Background(), idxOpts, progress)
@@ -82,10 +86,13 @@ func TestIndexWithPath(t *testing.T) {
 
 func TestIndexWithEngine(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx := New(indexPath(), "tmp/repo", "test")
+	idx := New(indexPath())
 	idx.IndexEngine = blugeindex.NewBlugeIndex("tmp/test2.idx", 10)
-
-	stats, err := idx.Index(context.Background(), DefaultIndexOptions, progress)
+	opts := IndexOptions{
+		RepositoryLocation: "tmp/repo",
+		RepositoryPassword: "test",
+	}
+	stats, err := idx.Index(context.Background(), opts, progress)
 	if err != nil {
 		t.Error(err)
 	}
@@ -99,7 +106,7 @@ func TestIndexWithEngine(t *testing.T) {
 
 func TestIndexWithUnbufferedProgress(t *testing.T) {
 	progress := make(chan IndexStats)
-	idx := New(indexPath(), "tmp/repo", "test")
+	idx := New(indexPath())
 	stats, err := idx.Index(context.Background(), DefaultIndexOptions, progress)
 	if err != nil {
 		t.Error(err)
@@ -110,7 +117,7 @@ func TestIndexWithUnbufferedProgress(t *testing.T) {
 }
 
 func TestSearch(t *testing.T) {
-	idx := New(indexPath(), "tmp/repo", "test")
+	idx := New(indexPath())
 
 	idx.Index(context.Background(), DefaultIndexOptions, nil)
 	idx.Close()
@@ -125,7 +132,7 @@ func TestSearch(t *testing.T) {
 }
 
 func TestSearchMaxResults(t *testing.T) {
-	idx := New(indexPath(), "tmp/repo", "test")
+	idx := New(indexPath())
 	idx.Index(context.Background(), DefaultIndexOptions, nil)
 	idx.Close()
 
