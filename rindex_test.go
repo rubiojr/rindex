@@ -3,12 +3,21 @@ package rindex
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/blugelabs/bluge"
 	"github.com/rubiojr/rindex/blugeindex"
 )
+
+var seededRand *rand.Rand = rand.New(
+	rand.NewSource(time.Now().UnixNano()))
+
+func indexPath() string {
+	return fmt.Sprintf("tmp/test%d.idx", rand.Intn(100000))
+}
 
 func TestMain(m *testing.M) {
 	os.Setenv("RESTIC_REPOSITORY", "tmp/repo")
@@ -16,17 +25,27 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func TestSetBatchSize(t *testing.T) {
+	progress := make(chan IndexStats, 10)
+	idx := New(indexPath(), "tmp/repo", "test")
+	idxOpts := IndexOptions{
+		Filter:    "*",
+		BatchSize: 10,
+	}
+	_, _ = idx.Index(context.Background(), idxOpts, progress)
+	if idx.IndexEngine.BatchSize != 10 {
+		t.Errorf("Index function does not set indexing engine batch size. Expected 10, available %d", idx.IndexEngine.BatchSize)
+	}
+}
+
 func TestIndexWithPath(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idxOpts := &IndexOptions{
-		RepositoryLocation: "tmp/repo",
-		RepositoryPassword: "test",
-		Filter:             "*",
-		IndexPath:          "tmp/test.idx",
-		AppendFileMeta:     true,
+	idx := New(indexPath(), "tmp/repo", "test")
+	idxOpts := IndexOptions{
+		Filter: "*",
 	}
 
-	stats, err := Index(idxOpts, progress)
+	stats, err := idx.Index(context.Background(), idxOpts, progress)
 	if err != nil {
 		t.Error(err)
 	}
@@ -44,7 +63,7 @@ func TestIndexWithPath(t *testing.T) {
 	}
 
 	// reindex
-	stats, err = Index(idxOpts, progress)
+	stats, err = idx.Index(context.Background(), idxOpts, progress)
 	if err != nil {
 		t.Error(err)
 	}
@@ -67,13 +86,10 @@ func TestIndexWithPath(t *testing.T) {
 
 func TestIndexWithEngine(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idxOpts := &IndexOptions{
-		RepositoryLocation: "tmp/repo",
-		RepositoryPassword: "test",
-		Filter:             "*",
-		IndexEngine:        blugeindex.NewBlugeIndex("tmp/test2.idx", 10),
-	}
-	stats, err := Index(idxOpts, progress)
+	idx := New(indexPath(), "tmp/repo", "test")
+	idx.IndexEngine = blugeindex.NewBlugeIndex("tmp/test2.idx", 10)
+
+	stats, err := idx.Index(context.Background(), DefaultIndexOptions, progress)
 	if err != nil {
 		t.Error(err)
 	}
@@ -91,30 +107,10 @@ func TestIndexWithEngine(t *testing.T) {
 	}
 }
 
-func TestIndexWithDefaultOptions(t *testing.T) {
-	progress := make(chan IndexStats, 10)
-	idxOpts := NewIndexOptions(
-		"tmp/repo",
-		"test",
-		"tmp/testwithdefopts.idx",
-	)
-	stats, err := Index(idxOpts, progress)
-	if err != nil {
-		t.Error(err)
-	}
-	if stats.IndexedNodes != 2 {
-		t.Errorf("%+v", stats)
-	}
-}
-
 func TestIndexWithUnbufferedProgress(t *testing.T) {
 	progress := make(chan IndexStats)
-	idxOpts := NewIndexOptions(
-		"tmp/repo",
-		"test",
-		"tmp/testwithunbuf.idx",
-	)
-	stats, err := Index(idxOpts, progress)
+	idx := New(indexPath(), "tmp/repo", "test")
+	stats, err := idx.Index(context.Background(), DefaultIndexOptions, progress)
 	if err != nil {
 		t.Error(err)
 	}
@@ -124,18 +120,18 @@ func TestIndexWithUnbufferedProgress(t *testing.T) {
 }
 
 func TestSearch(t *testing.T) {
-	idx := blugeindex.NewBlugeIndex("tmp/testsearch.idx", 0)
-	defer idx.Close()
+	idx := New(indexPath(), "tmp/repo", "test")
 
 	for i := 0; i < 200; i++ {
 		doc := bluge.NewDocument(fmt.Sprintf("%d", i))
-		err := idx.Index(doc)
+		err := idx.IndexEngine.Index(doc)
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
+	idx.Close()
 
-	results, err := Search(context.Background(), "tmp/testsearch.idx", "_id:2", DefaultSearchOptions)
+	results, err := idx.Search(context.Background(), "_id:2", DefaultSearchOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +143,7 @@ func TestSearch(t *testing.T) {
 		t.Error("should have returned document with ID 2")
 	}
 
-	results, err = Search(context.Background(), "tmp/testsearch.idx", "*", DefaultSearchOptions)
+	results, err = idx.Search(context.Background(), "*", DefaultSearchOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,19 +155,19 @@ func TestSearch(t *testing.T) {
 }
 
 func TestSearchComposite(t *testing.T) {
-	idx := blugeindex.NewBlugeIndex("tmp/testsearchcompo.idx", 0)
+	idx := New(indexPath(), "tmp/repo", "test")
 
 	doc := bluge.NewDocument("1").
 		AddField(bluge.NewTextField("filename", "foobar").StoreValue()).
 		AddField(bluge.NewTextField("stuff", "bar").StoreValue()).
 		AddField(bluge.NewCompositeFieldExcluding("_all", nil))
-	err := idx.Index(doc)
+	err := idx.IndexEngine.Index(doc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	idx.Close()
+	idx.IndexEngine.Close()
 
-	results, err := Search(context.Background(), "tmp/testsearchcompo.idx", "foobar", DefaultSearchOptions)
+	results, err := idx.Search(context.Background(), "foobar", DefaultSearchOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +175,7 @@ func TestSearchComposite(t *testing.T) {
 		t.Error("should find only one result")
 	}
 
-	results, err = Search(context.Background(), "tmp/testsearchcompo.idx", "bar", DefaultSearchOptions)
+	results, err = idx.Search(context.Background(), "bar", DefaultSearchOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,18 +188,18 @@ func TestSearchComposite(t *testing.T) {
 }
 
 func TestSearchMaxResults(t *testing.T) {
-	idx := blugeindex.NewBlugeIndex("tmp/testsearchmax.idx", 0)
-	defer idx.Close()
+	idx := New(indexPath(), "tmp/repo", "test")
 
 	for i := 0; i < 200; i++ {
 		doc := bluge.NewDocument(fmt.Sprintf("%d", i))
-		err := idx.Index(doc)
+		err := idx.IndexEngine.Index(doc)
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
+	idx.IndexEngine.Close()
 
-	results, err := Search(context.Background(), "tmp/testsearch.idx", "*", &SearchOptions{MaxResults: 0})
+	results, err := idx.Search(context.Background(), "*", SearchOptions{MaxResults: 0})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +210,7 @@ func TestSearchMaxResults(t *testing.T) {
 	}
 
 	// MaxResults can be changed
-	results, err = Search(context.Background(), "tmp/testsearch.idx", "*", &SearchOptions{MaxResults: 10})
+	results, err = idx.Search(context.Background(), "*", SearchOptions{MaxResults: 10})
 	if err != nil {
 		t.Fatal(err)
 	}

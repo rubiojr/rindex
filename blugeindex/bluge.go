@@ -7,12 +7,11 @@ import (
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/index"
 	"github.com/blugelabs/bluge/search"
-	qs "github.com/blugelabs/query_string"
 )
 
 type BlugeIndex struct {
 	IndexPath    string
-	BatchSize    int
+	BatchSize    uint
 	conf         *bluge.Config
 	writer       *bluge.Writer
 	writerClosed bool
@@ -22,7 +21,7 @@ type BlugeIndex struct {
 
 const defaultBatchSize = 1000
 
-func NewBlugeIndex(indexPath string, batchSize int) *BlugeIndex {
+func NewBlugeIndex(indexPath string, batchSize uint) *BlugeIndex {
 	blugeConf := bluge.DefaultConfig(indexPath)
 	idx := &BlugeIndex{conf: &blugeConf, IndexPath: indexPath, writerClosed: true, BatchSize: batchSize}
 	if batchSize > 1 {
@@ -40,6 +39,15 @@ func (i *BlugeIndex) Writer() (*bluge.Writer, error) {
 		}
 	}
 	return i.writer, err
+}
+
+func (i *BlugeIndex) SetBatchSize(size uint) {
+	if size > 1 {
+		i.batch = bluge.NewBatch()
+	} else {
+		i.batch = nil
+	}
+	i.BatchSize = size
 }
 
 func (i *BlugeIndex) Reader() (*bluge.Reader, error) {
@@ -127,18 +135,20 @@ func (i *BlugeIndex) Search(q string) (search.DocumentMatchIterator, error) {
 }
 
 func (i *BlugeIndex) SearchWithReader(q string, reader *bluge.Reader) (search.DocumentMatchIterator, error) {
-	if q == "*" {
-		q = "_id:*"
-	}
+	// FIXME: ran into memory issues with ParseQueryString with large document
+	// databases when using will hard queries such as * or filename:*, etc
+	// happens with both query_string and NewWildcardQuery
+	// if q == "*" {
+	// 	q = "_id:*"
+	// }
+	// 	query, err = qs.ParseQueryString(q, qs.DefaultOptions())
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	//
 
-	query, err := qs.ParseQueryString(q, qs.DefaultOptions())
-	if err != nil {
-		return nil, err
-	}
-
-	request := bluge.NewAllMatches(query).
-		WithStandardAggregations()
-
+	query := bluge.NewMatchQuery(q)
+	request := bluge.NewTopNSearch(100, query)
 	return reader.Search(context.Background(), request)
 }
 

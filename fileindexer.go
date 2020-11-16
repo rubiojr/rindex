@@ -10,15 +10,11 @@ import (
 	"github.com/rubiojr/rindex/blugeindex"
 )
 
-type FileIndexer struct{}
+type FileDocumentBuilder struct{}
 
-func NewFileIndexer() *FileIndexer {
-	return &FileIndexer{}
-}
-
-func (i *FileIndexer) ShouldIndex(fileID string, bindex *blugeindex.BlugeIndex, node *restic.Node, repo *repository.Repository) (*bluge.Document, bool) {
+func (i FileDocumentBuilder) ShouldIndex(fileID string, bindex blugeindex.BlugeIndex, node *restic.Node, repo *repository.Repository) (*bluge.Document, bool) {
 	doc := bluge.NewDocument(fileID).
-		AddField(bluge.NewTextField("mime_type", mime.TypeByExtension(filepath.Ext(node.Name))).StoreValue().HighlightMatches())
+		AddField(bluge.NewTextField("mime_type", mime.TypeByExtension(filepath.Ext(node.Name))).StoreValue())
 
 	return doc, true
 }

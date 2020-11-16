@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -16,36 +15,33 @@ import (
 	"github.com/rubiojr/rindex/blugeindex"
 )
 
-// Indexer is the interface custom indexers should implement
-type Indexer interface {
-	ShouldIndex(string, *blugeindex.BlugeIndex, *restic.Node, *repository.Repository) (*bluge.Document, bool)
+// DocumentBuilder is the interface custom indexers should implement
+type DocumentBuilder interface {
+	ShouldIndex(string, blugeindex.BlugeIndex, *restic.Node, *repository.Repository) (*bluge.Document, bool)
 }
 
 // IndexStats is returned every time an new document is indexed or when
 // the indexing process finishes.
 type IndexStats struct {
-	TreeBlobs      int64
+	TreeBlobs      uint64
+	NonFileNodes   uint64
+	Mismatch       uint64
+	ScannedNodes   uint64
+	ScannedTrees   uint64
+	IndexedNodes   uint64
+	AlreadyIndexed uint64
+	DataBlobs      uint64
 	Errors         []error
-	NonFileNodes   int64
-	Mismatch       int64
-	ScannedNodes   int64
-	ScannedTrees   int64
-	IndexedNodes   int64
-	AlreadyIndexed int64
 	LastScanned    string
 	LastMatch      string
 }
 
 // IndexOptions to be passed to Index
 type IndexOptions struct {
-	RepositoryLocation string
-	RepositoryPassword string
-	IndexPath          string
-	Filter             string
-	BatchSize          int
-	IndexEngine        *blugeindex.BlugeIndex
-	AppendFileMeta     bool
-	Indexer            Indexer
+	Filter          string
+	BatchSize       uint
+	AppendFileMeta  bool
+	DocumentBuilder DocumentBuilder
 }
 
 // SearchResult is returned for every search hit during a search process
@@ -56,63 +52,59 @@ type SearchOptions struct {
 	MaxResults int64
 }
 
-const searchDefaultMaxResults = 100
-
-func (opts *SearchOptions) setDefaults() {
-	if opts.MaxResults == 0 {
-		opts.MaxResults = searchDefaultMaxResults
-	}
+type Indexer struct {
+	RepositoryLocation string
+	RepositoryPassword string
+	IndexPath          string
+	IndexEngine        *blugeindex.BlugeIndex
 }
 
-var DefaultSearchOptions = &SearchOptions{
+const searchDefaultMaxResults = 100
+
+var DefaultSearchOptions = SearchOptions{
 	MaxResults: searchDefaultMaxResults,
 }
 
-func (opts *IndexOptions) setDefaults() {
-	if opts.Indexer == nil {
-		opts.Indexer = NewFileIndexer()
+var DefaultIndexOptions = IndexOptions{
+	Filter:          "*",
+	BatchSize:       1,
+	AppendFileMeta:  true,
+	DocumentBuilder: FileDocumentBuilder{},
+}
+
+func New(indexPath, repoLocation, repoPass string) Indexer {
+	return Indexer{
+		RepositoryLocation: repoLocation,
+		RepositoryPassword: repoPass,
+		IndexEngine:        blugeindex.NewBlugeIndex(indexPath, 1),
+		IndexPath:          indexPath,
+	}
+}
+
+func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan IndexStats) (IndexStats, error) {
+	if opts.DocumentBuilder == nil {
+		opts.DocumentBuilder = FileDocumentBuilder{}
 	}
 	if opts.Filter == "" {
 		opts.Filter = "*"
 	}
-	if opts.IndexEngine == nil {
-		opts.IndexEngine = blugeindex.NewBlugeIndex(opts.IndexPath, opts.BatchSize)
-	}
-}
-
-func NewIndexOptions(repoLocation, repoPassword, indexPath string) *IndexOptions {
-	return &IndexOptions{
-		RepositoryLocation: repoLocation,
-		RepositoryPassword: repoPassword,
-		IndexPath:          indexPath,
-		IndexEngine:        blugeindex.NewBlugeIndex(indexPath, 0),
-		Filter:             "*",
-		AppendFileMeta:     true,
-		Indexer:            NewFileIndexer(),
-	}
-}
-
-func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
-	if opts.IndexPath == "" && opts.IndexEngine == nil {
-		return IndexStats{}, errors.New("missing IndexPath")
-	}
-	opts.setDefaults()
+	i.IndexEngine.SetBatchSize(opts.BatchSize)
 
 	ropts := rapi.DefaultOptions
-	ropts.Password = opts.RepositoryPassword
-	ropts.Repo = opts.RepositoryLocation
+	ropts.Password = i.RepositoryPassword
+	ropts.Repo = i.RepositoryLocation
 	repo, err := rapi.OpenRepository(ropts)
 	if err != nil {
 		return IndexStats{}, err
 	}
 
-	ctx := context.Background()
 	stats := IndexStats{Errors: []error{}}
 	if err = repo.LoadIndex(ctx); err != nil {
 		return stats, err
 	}
 
 	idx := repo.Index()
+	stats.DataBlobs = uint64(idx.Count(restic.DataBlob))
 	treeBlobs := []restic.ID{}
 	for blob := range idx.Each(ctx) {
 		if blob.Type == restic.TreeBlob {
@@ -143,7 +135,7 @@ func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
 			}
 
 			fileID := fmt.Sprintf("%x", nodeFileID(node))
-			if match, err := opts.IndexEngine.Get(fileID); match != nil {
+			if match, err := i.IndexEngine.Get(fileID); match != nil {
 				if err != nil {
 					stats.Errors = append(stats.Errors, err)
 				} else {
@@ -164,7 +156,7 @@ func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
 			}
 			stats.LastMatch = node.Name
 
-			if doc, ok := opts.Indexer.ShouldIndex(fileID, opts.IndexEngine, node, repo); ok {
+			if doc, ok := opts.DocumentBuilder.ShouldIndex(fileID, *i.IndexEngine, node, repo); ok {
 				if opts.AppendFileMeta {
 					doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue()).
 						AddField(bluge.NewTextField("repository_location", repo.Backend().Location()).StoreValue()).
@@ -173,7 +165,7 @@ func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
 						AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue()).
 						AddField(bluge.NewCompositeFieldExcluding("_all", nil))
 				}
-				err = opts.IndexEngine.Index(doc)
+				err = i.IndexEngine.Index(doc)
 				if err != nil {
 					stats.Errors = append(stats.Errors, err)
 				} else {
@@ -183,13 +175,16 @@ func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
 		}
 	}
 
-	return stats, opts.IndexEngine.Close()
+	return stats, i.IndexEngine.Close()
 }
 
-func Search(ctx context.Context, indexPath string, query string, opts *SearchOptions) ([]SearchResult, error) {
-	opts.setDefaults()
+func (i Indexer) Search(ctx context.Context, query string, opts SearchOptions) ([]SearchResult, error) {
+	maxRes := opts.MaxResults
+	if maxRes == 0 {
+		maxRes = searchDefaultMaxResults
+	}
 
-	idx := blugeindex.NewBlugeIndex(indexPath, 0)
+	idx := i.IndexEngine
 
 	reader, err := idx.OpenReader()
 	if err != nil {
@@ -205,10 +200,7 @@ func Search(ctx context.Context, indexPath string, query string, opts *SearchOpt
 	results := []SearchResult{}
 	match, err := iter.Next()
 	count := int64(0)
-	for err == nil && match != nil {
-		if count >= opts.MaxResults {
-			break
-		}
+	for err == nil && match != nil && count < maxRes {
 		result := SearchResult{}
 		err = match.VisitStoredFields(func(field string, value []byte) bool {
 			result[field] = value
@@ -222,6 +214,10 @@ func Search(ctx context.Context, indexPath string, query string, opts *SearchOpt
 	}
 
 	return results, err
+}
+
+func (i Indexer) Close() {
+	i.IndexEngine.Close()
 }
 
 func nodeFileID(node *restic.Node) [32]byte {
