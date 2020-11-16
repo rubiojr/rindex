@@ -126,16 +126,9 @@ func (i *BlugeIndex) Count() (uint64, error) {
 }
 
 func (i *BlugeIndex) Get(id string) (*search.DocumentMatch, error) {
-	reader, err := i.Reader()
-	if err != nil {
-		return nil, err
-	}
-	defer reader.Close()
-
-	query := bluge.NewMatchQuery(id).SetField("_id")
-	request := bluge.NewTopNSearch(1, query)
-
-	iter, err := reader.Search(context.Background(), request)
+	b := []byte("_id:")
+	b = append(b, []byte(id)...)
+	iter, err := i.SearchWithQuery(string(b))
 	if err != nil {
 		return nil, err
 	}
