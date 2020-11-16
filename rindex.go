@@ -111,6 +111,7 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 		}
 	}
 
+	done := map[string]bool{}
 	for _, blob := range treeBlobs {
 		stats.ScannedTrees++
 		repo.LoadBlob(ctx, restic.TreeBlob, blob, nil)
@@ -120,7 +121,6 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 			continue
 		}
 
-		done := map[string]bool{}
 		for _, node := range tree.Nodes {
 			stats.ScannedNodes++
 			stats.LastScanned = node.Name
