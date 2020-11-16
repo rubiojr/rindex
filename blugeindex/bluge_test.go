@@ -104,12 +104,12 @@ func TestBlugeSearch(t *testing.T) {
 	doc := bluge.NewDocument("1").
 		AddField(bluge.NewTextField("filename", "test").StoreValue().HighlightMatches()).
 		AddField(bluge.NewCompositeFieldExcluding("_all", nil))
-	i.Close()
 
 	err := i.Index(doc)
 	if err != nil {
 		t.Error(err)
 	}
+	i.Close()
 
 	iter, err := i.Search("test")
 	if err != nil {
@@ -128,5 +128,28 @@ func TestBlugeSearch(t *testing.T) {
 	err = i.Index(doc)
 	if err != nil {
 		t.Error(err)
+	}
+}
+
+func TestSearchWithQuery(t *testing.T) {
+	i := NewBlugeIndex("tmp/searchwithquery.idx", 0)
+	doc := bluge.NewDocument("1").
+		AddField(bluge.NewTextField("filename", "test").StoreValue().HighlightMatches())
+	err := i.Index(doc)
+	if err != nil {
+		t.Error(err)
+	}
+	i.Close()
+
+	iter, err := i.SearchWithQuery("filename:test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	match, err := iter.Next()
+	if err != nil {
+		t.Error(err)
+	}
+	if match == nil {
+		t.Error("should find a match")
 	}
 }

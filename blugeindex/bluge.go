@@ -6,6 +6,7 @@ import (
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/index"
 	"github.com/blugelabs/bluge/search"
+	qs "github.com/blugelabs/query_string"
 )
 
 type BlugeIndex struct {
@@ -151,19 +152,33 @@ func (i *BlugeIndex) Search(q string) (search.DocumentMatchIterator, error) {
 	return i.SearchWithReader(q, reader)
 }
 
-func (i *BlugeIndex) SearchWithReader(q string, reader *bluge.Reader) (search.DocumentMatchIterator, error) {
-	// FIXME: ran into memory issues with ParseQueryString with large document
-	// databases when using will hard queries such as * or filename:*, etc
-	// happens with both query_string and NewWildcardQuery
-	// if q == "*" {
-	// 	q = "_id:*"
-	// }
-	// 	query, err = qs.ParseQueryString(q, qs.DefaultOptions())
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	//
+// Warning: search queries with a large number of arguments can eat all your memory
+// when using globbing
+func (i *BlugeIndex) SearchWithQuery(q string) (search.DocumentMatchIterator, error) {
+	reader, err := i.Reader()
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	return i.searchWithReaderAndQuery(q, reader)
+}
 
+func (i *BlugeIndex) searchWithReaderAndQuery(q string, reader *bluge.Reader) (search.DocumentMatchIterator, error) {
+	if q == "*" {
+		q = "_id:*"
+	}
+
+	query, err := qs.ParseQueryString(q, qs.DefaultOptions())
+	if err != nil {
+		return nil, err
+	}
+
+	request := bluge.NewAllMatches(query)
+
+	return reader.Search(context.Background(), request)
+}
+
+func (i *BlugeIndex) SearchWithReader(q string, reader *bluge.Reader) (search.DocumentMatchIterator, error) {
 	query := bluge.NewMatchQuery(q)
 	request := bluge.NewTopNSearch(100, query)
 	return reader.Search(context.Background(), request)
