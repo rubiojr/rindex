@@ -201,7 +201,7 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 	return stats, i.IndexEngine.Close()
 }
 
-func (i Indexer) Search(ctx context.Context, query string, opts SearchOptions) ([]SearchResult, error) {
+func (i Indexer) Search(ctx context.Context, query string, visitor func(string, []byte) bool, opts SearchOptions) (uint64, error) {
 	maxRes := opts.MaxResults
 	if maxRes == 0 {
 		maxRes = searchDefaultMaxResults
@@ -211,32 +211,24 @@ func (i Indexer) Search(ctx context.Context, query string, opts SearchOptions) (
 
 	reader, err := idx.OpenReader()
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	defer reader.Close()
 
 	iter, err := idx.SearchWithReader(query, opts.SearchField, reader)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	results := []SearchResult{}
-	count := int64(0)
+	var count uint64
 	match, err := iter.Next()
-	for err == nil && match != nil && count < maxRes {
-		result := SearchResult{}
-		err = match.VisitStoredFields(func(field string, value []byte) bool {
-			result[field] = value
-			return true
-		})
-		if err == nil && len(result) > 0 {
-			results = append(results, result)
-		}
-		count++
+	for err == nil && match != nil {
+		err = match.VisitStoredFields(visitor)
 		match, err = iter.Next()
+		count++
 	}
 
-	return results, err
+	return count, err
 }
 
 func (i Indexer) Close() {

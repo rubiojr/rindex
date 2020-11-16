@@ -122,35 +122,14 @@ func TestSearch(t *testing.T) {
 	idx.Index(context.Background(), DefaultIndexOptions, nil)
 	idx.Close()
 
-	results, err := idx.Search(context.Background(), "empty", DefaultSearchOptions)
+	visitor := func(field string, val []byte) bool {
+		return true
+	}
+	results, err := idx.Search(context.Background(), "empty", visitor, DefaultSearchOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 {
-		t.Error("should yield only one result")
-	}
-}
-
-func TestSearchMaxResults(t *testing.T) {
-	idx := New(indexPath())
-	idx.Index(context.Background(), DefaultIndexOptions, nil)
-	idx.Close()
-
-	results, err := idx.Search(context.Background(), "bar empty", SearchOptions{MaxResults: 1})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if len(results) != 1 {
-		t.Errorf("should return 1 results at most, got %d", len(results))
-	}
-
-	// MaxResults can be changed
-	results, err = idx.Search(context.Background(), "bar empty", SearchOptions{MaxResults: 2})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(results) != 2 {
-		t.Errorf("should return 2 results at most, got %d", len(results))
+	if results != 1 {
+		t.Errorf("should yield only one result, got %d", results)
 	}
 }
