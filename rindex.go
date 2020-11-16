@@ -98,6 +98,7 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 	if err != nil {
 		return IndexStats{}, err
 	}
+	repoID := repo.Config().ID
 
 	stats := IndexStats{Errors: []error{}}
 	if err = repo.LoadIndex(ctx); err != nil {
@@ -181,7 +182,7 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 			if doc, ok := opts.DocumentBuilder.ShouldIndex(fileID, *i.IndexEngine, node, repo); ok {
 				if opts.AppendFileMeta {
 					doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue()).
-						AddField(bluge.NewTextField("repository_id", repo.Config().ID).StoreValue()).
+						AddField(bluge.NewTextField("repository_id", repoID).StoreValue()).
 						AddField(bluge.NewDateTimeField("mod_time", node.ModTime).StoreValue()).
 						AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue()).
 						AddField(bluge.NewTextField("parent_tree", blob.String()).StoreValue()).
