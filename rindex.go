@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -119,6 +120,7 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 			continue
 		}
 
+		done := map[string]bool{}
 		for _, node := range tree.Nodes {
 			stats.ScannedNodes++
 			stats.LastScanned = node.Name
@@ -141,6 +143,10 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 				}
 				continue
 			}
+			if _, ok := done[fileID]; ok {
+				fmt.Fprintf(os.Stderr, "WARN: we are indexing a dupe")
+			}
+			done[fileID] = true
 
 			match, err := filepath.Match(opts.Filter, strings.ToLower(node.Name))
 			if err != nil {
@@ -196,8 +202,8 @@ func (i Indexer) Search(ctx context.Context, query string, opts SearchOptions) (
 	}
 
 	results := []SearchResult{}
-	match, err := iter.Next()
 	count := int64(0)
+	match, err := iter.Next()
 	for err == nil && match != nil && count < maxRes {
 		result := SearchResult{}
 		err = match.VisitStoredFields(func(field string, value []byte) bool {
