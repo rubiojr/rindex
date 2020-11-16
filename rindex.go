@@ -135,26 +135,28 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 			}
 
 			fileID := fmt.Sprintf("%x", nodeFileID(node))
-			if match, err := i.IndexEngine.Get(fileID); match != nil {
-				if err != nil {
-					stats.Errors = append(stats.Errors, err)
-				} else {
-					stats.AlreadyIndexed++
-				}
+			match, err := i.IndexEngine.Get(fileID)
+			if err != nil {
+				stats.Errors = append(stats.Errors, err)
 				continue
 			}
+			if match != nil {
+				stats.AlreadyIndexed++
+				continue
+			}
+
 			if _, ok := done[fileID]; ok {
 				fmt.Fprintf(os.Stderr, "WARN: we are indexing a dupe")
 			}
 			done[fileID] = true
 
-			match, err := filepath.Match(opts.Filter, strings.ToLower(node.Name))
+			fmatch, err := filepath.Match(opts.Filter, strings.ToLower(node.Name))
 			if err != nil {
 				stats.Errors = append(stats.Errors, err)
 				continue
 			}
 
-			if !match {
+			if !fmatch {
 				stats.Mismatch++
 				continue
 			}
