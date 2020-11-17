@@ -3,12 +3,20 @@ package rindex
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"testing"
+	"time"
 
-	"github.com/blugelabs/bluge"
 	"github.com/rubiojr/rindex/blugeindex"
 )
+
+var seededRand *rand.Rand = rand.New(
+	rand.NewSource(time.Now().UnixNano()))
+
+func indexPath() string {
+	return fmt.Sprintf("tmp/test%d.idx", rand.Intn(100000))
+}
 
 func TestMain(m *testing.M) {
 	os.Setenv("RESTIC_REPOSITORY", "tmp/repo")
@@ -16,27 +24,47 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestIndexWithPath(t *testing.T) {
+func TestSetBatchSize(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idxOpts := &IndexOptions{
+	idx := New(indexPath())
+	idxOpts := IndexOptions{
+		Filter:             "*",
+		BatchSize:          10,
 		RepositoryLocation: "tmp/repo",
 		RepositoryPassword: "test",
+	}
+	_, _ = idx.Index(context.Background(), idxOpts, progress)
+	if idx.IndexEngine.BatchSize != 10 {
+		t.Errorf("Index function does not set indexing engine batch size. Expected 10, available %d", idx.IndexEngine.BatchSize)
+	}
+}
+
+func TestIndexWithPath(t *testing.T) {
+	progress := make(chan IndexStats, 10)
+	idx := New(indexPath())
+	idxOpts := IndexOptions{
 		Filter:             "*",
-		IndexPath:          "tmp/test.idx",
-		AppendFileMeta:     true,
+		RepositoryLocation: "tmp/repo",
+		RepositoryPassword: "test",
 	}
 
-	stats, err := Index(idxOpts, progress)
+	stats, err := idx.Index(context.Background(), idxOpts, progress)
 	if err != nil {
 		t.Error(err)
 	}
-	if stats.IndexedNodes != 2 {
+	if stats.IndexedNodes != 3 {
 		t.Errorf("%+v", stats)
 	}
-	if stats.ScannedNodes != 2 {
+	if stats.ScannedNodes != 6 {
 		t.Errorf("%+v", stats)
 	}
-	if stats.ScannedTrees != 1 {
+	if stats.ScannedTrees != 3 {
+		t.Errorf("%+v", stats)
+	}
+	if stats.AlreadyIndexed != 1 {
+		t.Errorf("%+v", stats)
+	}
+	if stats.DataBlobs != 2 {
 		t.Errorf("%+v", stats)
 	}
 	if len(stats.Errors) != 0 {
@@ -44,21 +72,12 @@ func TestIndexWithPath(t *testing.T) {
 	}
 
 	// reindex
-	stats, err = Index(idxOpts, progress)
+	stats, err = idx.Index(context.Background(), idxOpts, progress)
 	if err != nil {
 		t.Error(err)
 	}
 	if stats.IndexedNodes != 0 {
-		t.Errorf("invalid number of indexed nodes %v", stats)
-	}
-	if stats.ScannedNodes != 2 {
-		t.Errorf("%v", stats)
-	}
-	if stats.ScannedTrees != 1 {
-		t.Errorf("%v", stats)
-	}
-	if stats.AlreadyIndexed != 2 {
-		t.Errorf("%v", stats)
+		t.Errorf("invalid number of indexed nodes %+v", stats)
 	}
 	if len(stats.Errors) != 0 {
 		t.Error("errors found while indexing")
@@ -67,23 +86,17 @@ func TestIndexWithPath(t *testing.T) {
 
 func TestIndexWithEngine(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idxOpts := &IndexOptions{
+	idx := New(indexPath())
+	idx.IndexEngine = blugeindex.NewBlugeIndex("tmp/test2.idx", 10)
+	opts := IndexOptions{
 		RepositoryLocation: "tmp/repo",
 		RepositoryPassword: "test",
-		Filter:             "*",
-		IndexEngine:        blugeindex.NewBlugeIndex("tmp/test2.idx", 10),
 	}
-	stats, err := Index(idxOpts, progress)
+	stats, err := idx.Index(context.Background(), opts, progress)
 	if err != nil {
 		t.Error(err)
 	}
-	if stats.IndexedNodes != 2 {
-		t.Errorf("%+v", stats)
-	}
-	if stats.ScannedNodes != 2 {
-		t.Errorf("%+v", stats)
-	}
-	if stats.ScannedTrees != 1 {
+	if stats.IndexedNodes != 3 {
 		t.Errorf("%+v", stats)
 	}
 	if len(stats.Errors) != 0 {
@@ -91,134 +104,32 @@ func TestIndexWithEngine(t *testing.T) {
 	}
 }
 
-func TestIndexWithDefaultOptions(t *testing.T) {
-	progress := make(chan IndexStats, 10)
-	idxOpts := NewIndexOptions(
-		"tmp/repo",
-		"test",
-		"tmp/testwithdefopts.idx",
-	)
-	stats, err := Index(idxOpts, progress)
-	if err != nil {
-		t.Error(err)
-	}
-	if stats.IndexedNodes != 2 {
-		t.Errorf("%+v", stats)
-	}
-}
-
 func TestIndexWithUnbufferedProgress(t *testing.T) {
 	progress := make(chan IndexStats)
-	idxOpts := NewIndexOptions(
-		"tmp/repo",
-		"test",
-		"tmp/testwithunbuf.idx",
-	)
-	stats, err := Index(idxOpts, progress)
+	idx := New(indexPath())
+	stats, err := idx.Index(context.Background(), DefaultIndexOptions, progress)
 	if err != nil {
 		t.Error(err)
 	}
-	if stats.IndexedNodes != 2 {
+	if stats.IndexedNodes != 3 {
 		t.Errorf("%+v", stats)
 	}
 }
 
 func TestSearch(t *testing.T) {
-	idx := blugeindex.NewBlugeIndex("tmp/testsearch.idx", 0)
-	defer idx.Close()
+	idx := New(indexPath())
 
-	for i := 0; i < 200; i++ {
-		doc := bluge.NewDocument(fmt.Sprintf("%d", i))
-		err := idx.Index(doc)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	results, err := Search(context.Background(), "tmp/testsearch.idx", "_id:2", DefaultSearchOptions)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(results) != 1 {
-		t.Error("more than one result found, should find only one")
-	}
-
-	if string(results[0]["_id"]) != "2" {
-		t.Error("should have returned document with ID 2")
-	}
-
-	results, err = Search(context.Background(), "tmp/testsearch.idx", "*", DefaultSearchOptions)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Max 100 results by default
-	if len(results) != 100 {
-		t.Error("should return 100 results at most")
-	}
-}
-
-func TestSearchComposite(t *testing.T) {
-	idx := blugeindex.NewBlugeIndex("tmp/testsearchcompo.idx", 0)
-
-	doc := bluge.NewDocument("1").
-		AddField(bluge.NewTextField("filename", "foobar").StoreValue()).
-		AddField(bluge.NewTextField("stuff", "bar").StoreValue()).
-		AddField(bluge.NewCompositeFieldExcluding("_all", nil))
-	err := idx.Index(doc)
-	if err != nil {
-		t.Fatal(err)
-	}
+	idx.Index(context.Background(), DefaultIndexOptions, nil)
 	idx.Close()
 
-	results, err := Search(context.Background(), "tmp/testsearchcompo.idx", "foobar", DefaultSearchOptions)
+	visitor := func(field string, val []byte) bool {
+		return true
+	}
+	results, err := idx.Search(context.Background(), "empty", visitor, DefaultSearchOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 1 {
-		t.Error("should find only one result")
-	}
-
-	results, err = Search(context.Background(), "tmp/testsearchcompo.idx", "bar", DefaultSearchOptions)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(results) != 1 {
-		t.Error("should find only one result")
-	}
-	if string(results[0]["stuff"]) != "bar" {
-		t.Error("invalid search result")
-	}
-}
-
-func TestSearchMaxResults(t *testing.T) {
-	idx := blugeindex.NewBlugeIndex("tmp/testsearchmax.idx", 0)
-	defer idx.Close()
-
-	for i := 0; i < 200; i++ {
-		doc := bluge.NewDocument(fmt.Sprintf("%d", i))
-		err := idx.Index(doc)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	results, err := Search(context.Background(), "tmp/testsearch.idx", "*", &SearchOptions{MaxResults: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Max 100 results by default
-	if len(results) != 100 {
-		t.Error("should return 100 results at most")
-	}
-
-	// MaxResults can be changed
-	results, err = Search(context.Background(), "tmp/testsearch.idx", "*", &SearchOptions{MaxResults: 10})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(results) != 10 {
-		t.Error("should return 100 results at most")
+	if results != 1 {
+		t.Errorf("should yield only one result, got %d", results)
 	}
 }

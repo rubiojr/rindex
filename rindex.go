@@ -4,34 +4,35 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/blugelabs/bluge"
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/rubiojr/rapi"
 	"github.com/rubiojr/rapi/repository"
 	"github.com/rubiojr/rapi/restic"
 	"github.com/rubiojr/rindex/blugeindex"
 )
 
-// Indexer is the interface custom indexers should implement
-type Indexer interface {
-	ShouldIndex(string, *blugeindex.BlugeIndex, *restic.Node, *repository.Repository) (*bluge.Document, bool)
+// DocumentBuilder is the interface custom indexers should implement
+type DocumentBuilder interface {
+	ShouldIndex(string, blugeindex.BlugeIndex, *restic.Node, *repository.Repository) (*bluge.Document, bool)
 }
 
 // IndexStats is returned every time an new document is indexed or when
 // the indexing process finishes.
 type IndexStats struct {
-	TreeBlobs      int64
+	TreeBlobs      uint64
+	NonFileNodes   uint64
+	Mismatch       uint64
+	ScannedNodes   uint64
+	ScannedTrees   uint64
+	IndexedNodes   uint64
+	AlreadyIndexed uint64
+	DataBlobs      uint64
 	Errors         []error
-	NonFileNodes   int64
-	Mismatch       int64
-	ScannedNodes   int64
-	ScannedTrees   int64
-	IndexedNodes   int64
-	AlreadyIndexed int64
 	LastScanned    string
 	LastMatch      string
 }
@@ -40,12 +41,10 @@ type IndexStats struct {
 type IndexOptions struct {
 	RepositoryLocation string
 	RepositoryPassword string
-	IndexPath          string
 	Filter             string
-	BatchSize          int
-	IndexEngine        *blugeindex.BlugeIndex
+	BatchSize          uint
 	AppendFileMeta     bool
-	Indexer            Indexer
+	DocumentBuilder    DocumentBuilder
 }
 
 // SearchResult is returned for every search hit during a search process
@@ -53,50 +52,43 @@ type SearchResult map[string][]byte
 
 // SearchOptions to be passed to the Search function
 type SearchOptions struct {
-	MaxResults int64
+	MaxResults  int64
+	SearchField string
+}
+
+type Indexer struct {
+	IndexPath   string
+	IndexEngine *blugeindex.BlugeIndex
 }
 
 const searchDefaultMaxResults = 100
 
-func (opts *SearchOptions) setDefaults() {
-	if opts.MaxResults == 0 {
-		opts.MaxResults = searchDefaultMaxResults
-	}
-}
-
-var DefaultSearchOptions = &SearchOptions{
+var DefaultSearchOptions = SearchOptions{
 	MaxResults: searchDefaultMaxResults,
 }
 
-func (opts *IndexOptions) setDefaults() {
-	if opts.Indexer == nil {
-		opts.Indexer = NewFileIndexer()
+var DefaultIndexOptions = IndexOptions{
+	Filter:          "*",
+	BatchSize:       1,
+	AppendFileMeta:  true,
+	DocumentBuilder: FileDocumentBuilder{},
+}
+
+func New(indexPath string) Indexer {
+	return Indexer{
+		IndexEngine: blugeindex.NewBlugeIndex(indexPath, 1),
+		IndexPath:   indexPath,
+	}
+}
+
+func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan IndexStats) (IndexStats, error) {
+	if opts.DocumentBuilder == nil {
+		opts.DocumentBuilder = FileDocumentBuilder{}
 	}
 	if opts.Filter == "" {
 		opts.Filter = "*"
 	}
-	if opts.IndexEngine == nil {
-		opts.IndexEngine = blugeindex.NewBlugeIndex(opts.IndexPath, opts.BatchSize)
-	}
-}
-
-func NewIndexOptions(repoLocation, repoPassword, indexPath string) *IndexOptions {
-	return &IndexOptions{
-		RepositoryLocation: repoLocation,
-		RepositoryPassword: repoPassword,
-		IndexPath:          indexPath,
-		IndexEngine:        blugeindex.NewBlugeIndex(indexPath, 0),
-		Filter:             "*",
-		AppendFileMeta:     true,
-		Indexer:            NewFileIndexer(),
-	}
-}
-
-func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
-	if opts.IndexPath == "" && opts.IndexEngine == nil {
-		return IndexStats{}, errors.New("missing IndexPath")
-	}
-	opts.setDefaults()
+	i.IndexEngine.SetBatchSize(opts.BatchSize)
 
 	ropts := rapi.DefaultOptions
 	ropts.Password = opts.RepositoryPassword
@@ -105,19 +97,26 @@ func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
 	if err != nil {
 		return IndexStats{}, err
 	}
+	repoID := repo.Config().ID
 
-	ctx := context.Background()
 	stats := IndexStats{Errors: []error{}}
 	if err = repo.LoadIndex(ctx); err != nil {
 		return stats, err
 	}
 
 	idx := repo.Index()
+	stats.DataBlobs = uint64(idx.Count(restic.DataBlob))
 	treeBlobs := []restic.ID{}
 	for blob := range idx.Each(ctx) {
 		if blob.Type == restic.TreeBlob {
 			treeBlobs = append(treeBlobs, blob.ID)
 		}
+	}
+
+	csize := opts.BatchSize + 10
+	hcache, err := lru.New(int(csize))
+	if err != nil {
+		panic(err)
 	}
 
 	for _, blob := range treeBlobs {
@@ -136,92 +135,102 @@ func Index(opts *IndexOptions, progress chan IndexStats) (IndexStats, error) {
 			case progress <- stats:
 			default:
 			}
-
-			if node.Type != "file" {
-				stats.NonFileNodes++
-				continue
-			}
-
-			fileID := fmt.Sprintf("%x", nodeFileID(node))
-			if match, err := opts.IndexEngine.Get(fileID); match != nil {
-				if err != nil {
-					stats.Errors = append(stats.Errors, err)
-				} else {
-					stats.AlreadyIndexed++
-				}
-				continue
-			}
-
-			match, err := filepath.Match(opts.Filter, strings.ToLower(node.Name))
-			if err != nil {
-				stats.Errors = append(stats.Errors, err)
-				continue
-			}
-
-			if !match {
-				stats.Mismatch++
-				continue
-			}
-			stats.LastMatch = node.Name
-
-			if doc, ok := opts.Indexer.ShouldIndex(fileID, opts.IndexEngine, node, repo); ok {
-				if opts.AppendFileMeta {
-					doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue()).
-						AddField(bluge.NewTextField("repository_location", repo.Backend().Location()).StoreValue()).
-						AddField(bluge.NewTextField("repository_id", repo.Config().ID).StoreValue()).
-						AddField(bluge.NewDateTimeField("mod_time", node.ModTime).StoreValue()).
-						AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue()).
-						AddField(bluge.NewCompositeFieldExcluding("_all", nil))
-				}
-				err = opts.IndexEngine.Index(doc)
-				if err != nil {
-					stats.Errors = append(stats.Errors, err)
-				} else {
-					stats.IndexedNodes++
-				}
-			}
+			i.scanNode(repo, blob, repoID, opts, hcache, node, &stats)
 		}
 	}
 
-	return stats, opts.IndexEngine.Close()
+	return stats, i.IndexEngine.Close()
 }
 
-func Search(ctx context.Context, indexPath string, query string, opts *SearchOptions) ([]SearchResult, error) {
-	opts.setDefaults()
+func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID string, opts IndexOptions, hcache *lru.Cache, node *restic.Node, stats *IndexStats) {
+	if node.Type != "file" {
+		stats.NonFileNodes++
+		return
+	}
 
-	idx := blugeindex.NewBlugeIndex(indexPath, 0)
+	fileID := fmt.Sprintf("%x", nodeFileID(node))
+
+	if _, ok := hcache.Get(fileID); ok {
+		stats.AlreadyIndexed++
+		return
+	}
+	hcache.Add(fileID, 0)
+
+	match, err := i.IndexEngine.Get(fileID)
+	if err != nil {
+		stats.Errors = append(stats.Errors, err)
+		return
+	}
+
+	if match != nil {
+		stats.AlreadyIndexed++
+		return
+	}
+
+	fmatch, err := filepath.Match(opts.Filter, strings.ToLower(node.Name))
+	if err != nil {
+		stats.Errors = append(stats.Errors, err)
+		return
+	}
+
+	if !fmatch {
+		stats.Mismatch++
+		return
+	}
+
+	stats.LastMatch = node.Name
+
+	if doc, ok := opts.DocumentBuilder.ShouldIndex(fileID, *i.IndexEngine, node, repo); ok {
+		if opts.AppendFileMeta {
+			doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue()).
+				AddField(bluge.NewTextField("repository_id", repoID).StoreValue()).
+				AddField(bluge.NewDateTimeField("mod_time", node.ModTime).StoreValue()).
+				AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue()).
+				AddField(bluge.NewTextField("parent_tree", blob.String()).StoreValue()).
+				AddField(bluge.NewCompositeFieldExcluding("_all", nil))
+		}
+		err = i.IndexEngine.Index(doc)
+		if err != nil {
+			stats.Errors = append(stats.Errors, err)
+		} else {
+			stats.IndexedNodes++
+		}
+	}
+}
+
+func (i Indexer) Search(ctx context.Context, query string, visitor func(string, []byte) bool, opts SearchOptions) (uint64, error) {
+	maxRes := opts.MaxResults
+	if maxRes == 0 {
+		maxRes = searchDefaultMaxResults
+	}
+
+	idx := i.IndexEngine
 
 	reader, err := idx.OpenReader()
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	defer reader.Close()
 
-	iter, err := idx.SearchWithReader(query, reader)
+	iter, err := idx.SearchWithReader(query, opts.SearchField, reader)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	results := []SearchResult{}
+	//TODO: use a channel instead of the visitor argument and send a result once we've visited all the fields
+	var count uint64
 	match, err := iter.Next()
-	count := int64(0)
 	for err == nil && match != nil {
-		if count >= opts.MaxResults {
-			break
-		}
-		result := SearchResult{}
-		err = match.VisitStoredFields(func(field string, value []byte) bool {
-			result[field] = value
-			return true
-		})
-		if err == nil && len(result) > 0 {
-			results = append(results, result)
-		}
-		count++
+		err = match.VisitStoredFields(visitor)
 		match, err = iter.Next()
+		count++
 	}
 
-	return results, err
+	return count, err
+}
+
+func (i Indexer) Close() {
+	i.IndexEngine.Close()
 }
 
 func nodeFileID(node *restic.Node) [32]byte {
