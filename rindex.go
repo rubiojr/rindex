@@ -197,7 +197,7 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 	}
 }
 
-func (i Indexer) Search(ctx context.Context, query string, results chan SearchResult, opts SearchOptions) (uint64, error) {
+func (i Indexer) Search(ctx context.Context, query string, results chan *SearchResult, opts SearchOptions) (uint64, error) {
 	maxRes := opts.MaxResults
 	if maxRes == 0 {
 		maxRes = searchDefaultMaxResults
@@ -227,7 +227,7 @@ func (i Indexer) Search(ctx context.Context, query string, results chan SearchRe
 		if err == nil {
 			count++
 			select {
-			case results <- *searchResult:
+			case results <- searchResult:
 			default:
 			}
 		}
