@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/blugelabs/bluge"
-	"github.com/peterbourgon/diskv"
+	"github.com/peterbourgon/diskv/v3"
 	"github.com/rubiojr/rapi"
 	"github.com/rubiojr/rapi/repository"
 	"github.com/rubiojr/rapi/restic"
