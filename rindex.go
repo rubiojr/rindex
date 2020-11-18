@@ -49,21 +49,11 @@ type IndexOptions struct {
 	DocumentBuilder    DocumentBuilder
 }
 
-// SearchResult is returned for every search hit during a search process
-type SearchResult map[string][]byte
-
-// SearchOptions to be passed to the Search function
-type SearchOptions struct {
-	SearchField string
-}
-
 type Indexer struct {
 	IndexPath   string
 	IndexEngine *blugeindex.BlugeIndex
 	fileIDCache *leveldb.DB
 }
-
-var DefaultSearchOptions = SearchOptions{}
 
 var DefaultIndexOptions = IndexOptions{
 	Filter:          "*",
@@ -190,41 +180,6 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 			}
 		}
 	}
-}
-
-func (i Indexer) Search(ctx context.Context, query string, results chan SearchResult, opts SearchOptions) (uint64, error) {
-	idx := i.IndexEngine
-
-	reader, err := idx.OpenReader()
-	if err != nil {
-		return 0, err
-	}
-	defer reader.Close()
-
-	iter, err := idx.SearchWithReaderAndQuery(query, reader)
-	if err != nil {
-		return 0, err
-	}
-
-	var count uint64
-	match, err := iter.Next()
-	for err == nil && match != nil {
-		searchResult := SearchResult{}
-		err = match.VisitStoredFields(func(field string, value []byte) bool {
-			searchResult[field] = value
-			return true
-		})
-		if err == nil {
-			count++
-			select {
-			case results <- searchResult:
-			default:
-			}
-		}
-		match, err = iter.Next()
-	}
-
-	return count, err
 }
 
 func (i Indexer) Close() {
