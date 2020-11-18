@@ -79,7 +79,7 @@ var dcache *diskv.Diskv
 func New(indexPath string) Indexer {
 	dcache = diskv.New(diskv.Options{
 		BasePath:     indexPath + ".dcache",
-		CacheSizeMax: 1024 * 1024 * 1024,
+		CacheSizeMax: 1024 * 1024,
 	})
 	return Indexer{
 		IndexEngine: blugeindex.NewBlugeIndex(indexPath, 1),
