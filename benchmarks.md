@@ -1,3 +1,4 @@
+```
 x390
 commit e1a1d55e43693543931bae5df2be7b50d5cb49ee (HEAD -> new-api, origin/new-api)
 Author: Sergio Rubio <rubiojr@frameos.org>
@@ -14,3 +15,4 @@ BenchmarkIndexBatch100-8             1  8231955217 ns/op    2295889216 B/op   36
 BenchmarkIndexBatch1000-8            1  8374405386 ns/op    2299962280 B/op   36511738 allocs/op
 PASS
 ok    github.com/rubiojr/rindex 319.832s
+```
