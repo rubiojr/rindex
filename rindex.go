@@ -153,12 +153,14 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 		return
 	}
 
-	fileID := nodeFileID(node)
+	fileIDBytes := nodeFileID(node)
 
-	if _, err := i.dcache.Get([]byte(fileID), nil); err == nil {
+	if _, err := i.dcache.Get([]byte(fileIDBytes), nil); err == nil {
 		stats.AlreadyIndexed++
 		return
 	}
+
+	fileID := hex.EncodeToString(fileIDBytes)
 
 	fmatch, err := filepath.Match(opts.Filter, strings.ToLower(node.Name))
 	if err != nil {
@@ -187,7 +189,7 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 			stats.Errors = append(stats.Errors, err)
 		} else {
 			stats.IndexedNodes++
-			err := i.dcache.Put([]byte(fileID), []byte{}, nil)
+			err := i.dcache.Put(fileIDBytes, []byte{}, nil)
 			if err != nil {
 				stats.Errors = append(stats.Errors, err)
 			}
@@ -230,13 +232,13 @@ func (i Indexer) Close() {
 	i.IndexEngine.Close()
 }
 
-func nodeFileID(node *restic.Node) string {
+func nodeFileID(node *restic.Node) []byte {
 	var bb []byte
 	for _, c := range node.Content {
 		bb = append(bb, []byte(c[:])...)
 	}
 	sha := sha256.Sum256(bb)
-	return hex.EncodeToString(sha[:])
+	return sha[:]
 }
 
 func marshalBlobIDs(ids restic.IDs) string {
