@@ -61,7 +61,7 @@ type SearchOptions struct {
 type Indexer struct {
 	IndexPath   string
 	IndexEngine *blugeindex.BlugeIndex
-	dcache      *leveldb.DB
+	fileIDCache *leveldb.DB
 }
 
 const searchDefaultMaxResults = 100
@@ -82,14 +82,14 @@ func New(indexPath string) Indexer {
 		Filter: filter.NewBloomFilter(10),
 		NoSync: true,
 	}
-	db, err := leveldb.OpenFile(indexPath+".dcache", o)
+	db, err := leveldb.OpenFile(indexPath+".fidcache", o)
 	if err != nil {
 		panic(err)
 	}
 	return Indexer{
 		IndexEngine: blugeindex.NewBlugeIndex(indexPath, 1),
 		IndexPath:   indexPath,
-		dcache:      db,
+		fileIDCache: db,
 	}
 }
 
@@ -156,7 +156,7 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 
 	fileIDBytes := nodeFileID(node)
 
-	if _, err := i.dcache.Get([]byte(fileIDBytes), nil); err == nil {
+	if _, err := i.fileIDCache.Get([]byte(fileIDBytes), nil); err == nil {
 		stats.AlreadyIndexed++
 		return
 	}
@@ -190,7 +190,7 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 			stats.Errors = append(stats.Errors, err)
 		} else {
 			stats.IndexedNodes++
-			err := i.dcache.Put(fileIDBytes, []byte{}, nil)
+			err := i.fileIDCache.Put(fileIDBytes, []byte{}, nil)
 			if err != nil {
 				stats.Errors = append(stats.Errors, err)
 			}
@@ -231,7 +231,7 @@ func (i Indexer) Search(ctx context.Context, query string, visitor func(string, 
 
 func (i Indexer) Close() {
 	i.IndexEngine.Close()
-	i.dcache.Close()
+	i.fileIDCache.Close()
 }
 
 func nodeFileID(node *restic.Node) []byte {
