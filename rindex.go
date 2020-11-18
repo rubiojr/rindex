@@ -182,7 +182,6 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 				AddField(bluge.NewTextField("repository_id", repoID).StoreValue()).
 				AddField(bluge.NewDateTimeField("mod_time", node.ModTime).StoreValue()).
 				AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue()).
-				AddField(bluge.NewTextField("parent_tree", blob.String()).StoreValue()).
 				AddField(bluge.NewCompositeFieldExcluding("_all", nil))
 		}
 		err = i.IndexEngine.Index(doc)
@@ -198,7 +197,7 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 	}
 }
 
-func (i Indexer) Search(ctx context.Context, query string, visitor func(string, []byte) bool, opts SearchOptions) (uint64, error) {
+func (i Indexer) Search(ctx context.Context, query string, results chan SearchResult, opts SearchOptions) (uint64, error) {
 	maxRes := opts.MaxResults
 	if maxRes == 0 {
 		maxRes = searchDefaultMaxResults
@@ -212,18 +211,27 @@ func (i Indexer) Search(ctx context.Context, query string, visitor func(string, 
 	}
 	defer reader.Close()
 
-	iter, err := idx.SearchWithReader(query, opts.SearchField, reader)
+	iter, err := idx.SearchWithReaderAndQuery(query, reader)
 	if err != nil {
 		return 0, err
 	}
 
-	//TODO: use a channel instead of the visitor argument and send a result once we've visited all the fields
 	var count uint64
 	match, err := iter.Next()
 	for err == nil && match != nil {
-		err = match.VisitStoredFields(visitor)
+		searchResult := SearchResult{}
+		err = match.VisitStoredFields(func(field string, value []byte) bool {
+			searchResult[field] = value
+			return true
+		})
+		if err == nil {
+			count++
+			select {
+			case results <- searchResult:
+			default:
+			}
+		}
 		match, err = iter.Next()
-		count++
 	}
 
 	return count, err

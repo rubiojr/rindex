@@ -34,31 +34,6 @@ func TestBlugeIndex(t *testing.T) {
 	}
 }
 
-func TestBlugeGet(t *testing.T) {
-	i := NewBlugeIndex("tmp/testblugeget.idx", 0)
-	i.Close()
-
-	doc := bluge.NewDocument("1").
-		AddField(bluge.NewTextField("filename", string("test")).StoreValue().HighlightMatches())
-	err := i.Index(doc)
-
-	match, err := i.Get("1")
-	if err != nil {
-		t.Error(err)
-	}
-	if match == nil {
-		t.Error("should find a match")
-	}
-
-	match, err = i.Get("5")
-	if err != nil {
-		t.Error(err)
-	}
-	if match != nil {
-		t.Error("should not find a match")
-	}
-}
-
 func TestBatchedWrites(t *testing.T) {
 	i := NewBlugeIndex("tmp/testbatched.idx", 3)
 	defer i.Close()
