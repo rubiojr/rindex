@@ -3,13 +3,13 @@ package rindex
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/blugelabs/bluge"
-	lru "github.com/hashicorp/golang-lru"
+	"github.com/peterbourgon/diskv"
 	"github.com/rubiojr/rapi"
 	"github.com/rubiojr/rapi/repository"
 	"github.com/rubiojr/rapi/restic"
@@ -74,7 +74,13 @@ var DefaultIndexOptions = IndexOptions{
 	DocumentBuilder: FileDocumentBuilder{},
 }
 
+var dcache *diskv.Diskv
+
 func New(indexPath string) Indexer {
+	dcache = diskv.New(diskv.Options{
+		BasePath:     indexPath + ".dcache",
+		CacheSizeMax: 1024 * 1024 * 1024,
+	})
 	return Indexer{
 		IndexEngine: blugeindex.NewBlugeIndex(indexPath, 1),
 		IndexPath:   indexPath,
@@ -113,12 +119,6 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 		}
 	}
 
-	csize := opts.BatchSize + 10
-	hcache, err := lru.New(int(csize))
-	if err != nil {
-		panic(err)
-	}
-
 	for _, blob := range treeBlobs {
 		stats.ScannedTrees++
 		repo.LoadBlob(ctx, restic.TreeBlob, blob, nil)
@@ -135,34 +135,22 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 			case progress <- stats:
 			default:
 			}
-			i.scanNode(repo, blob, repoID, opts, hcache, node, &stats)
+			i.scanNode(repo, blob, repoID, opts, node, &stats)
 		}
 	}
 
 	return stats, i.IndexEngine.Close()
 }
 
-func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID string, opts IndexOptions, hcache *lru.Cache, node *restic.Node, stats *IndexStats) {
+func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID string, opts IndexOptions, node *restic.Node, stats *IndexStats) {
 	if node.Type != "file" {
 		stats.NonFileNodes++
 		return
 	}
 
-	fileID := fmt.Sprintf("%x", nodeFileID(node))
+	fileID := nodeFileID(node)
 
-	if _, ok := hcache.Get(fileID); ok {
-		stats.AlreadyIndexed++
-		return
-	}
-	hcache.Add(fileID, 0)
-
-	match, err := i.IndexEngine.Get(fileID)
-	if err != nil {
-		stats.Errors = append(stats.Errors, err)
-		return
-	}
-
-	if match != nil {
+	if dcache.Has(fileID) {
 		stats.AlreadyIndexed++
 		return
 	}
@@ -194,6 +182,10 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 			stats.Errors = append(stats.Errors, err)
 		} else {
 			stats.IndexedNodes++
+			err := dcache.Write(fileID, []byte{})
+			if err != nil {
+				stats.Errors = append(stats.Errors, err)
+			}
 		}
 	}
 }
@@ -233,12 +225,13 @@ func (i Indexer) Close() {
 	i.IndexEngine.Close()
 }
 
-func nodeFileID(node *restic.Node) [32]byte {
+func nodeFileID(node *restic.Node) string {
 	var bb []byte
 	for _, c := range node.Content {
 		bb = append(bb, []byte(c[:])...)
 	}
-	return sha256.Sum256(bb)
+	sha := sha256.Sum256(bb)
+	return hex.EncodeToString(sha[:])
 }
 
 func marshalBlobIDs(ids restic.IDs) string {

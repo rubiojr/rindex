@@ -8,14 +8,14 @@ import (
 	"testing"
 )
 
-const devIndexPath = "/tmp/rindex-dev.bluge"
+const devIndexPath = "/tmp/rindex-tests/rindex-dev.bluge"
 
 var devResticPath = filepath.Join(os.Getenv("HOME"), "restic-dev")
 
 func benchIndex(batchSize uint) error {
 	os.Setenv("RESTIC_REPOSITORY", devResticPath)
 	os.Setenv("RESTIC_PASSWORD", "test")
-	os.RemoveAll(devIndexPath)
+	os.RemoveAll("/tmp/rindex-tests")
 
 	idx := New(devIndexPath)
 	idxOpts := IndexOptions{

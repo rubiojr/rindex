@@ -1,0 +1,18 @@
+#!/bin/bash
+set -e
+
+d=$(mktemp -d /tmp/rindex-benchXXX)
+git clone . "$d" > /dev/null 2>&1
+cd "$d"
+
+cleanup() {
+  rm -rf "$d"
+}
+
+trap cleanup EXIT
+
+go test -benchmem -run=XXX -bench "^BenchmarkIndexBatch100$" -count 5 > new
+git checkout master > /dev/null 2>&1
+go test -benchmem -run=XXX -bench "^BenchmarkIndexBatch100$" -count 5 > old
+
+benchstat old new
