@@ -167,6 +167,7 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 				AddField(bluge.NewTextField("repository_id", repoID).StoreValue()).
 				AddField(bluge.NewDateTimeField("mtime", node.ModTime).StoreValue()).
 				AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue()).
+				AddField(bluge.NewNumericField("size", float64(node.Size)).StoreValue()).
 				AddField(bluge.NewCompositeFieldExcluding("_all", nil))
 		}
 		err = i.IndexEngine.Index(doc)
