@@ -2,7 +2,7 @@ package rindex
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,8 +25,9 @@ func benchIndex(batchSize uint) error {
 		RepositoryPassword: os.Getenv("RESTIC_PASSWORD"),
 	}
 	stats, err := idx.Index(context.Background(), idxOpts, nil)
-	fmt.Printf("Indexed nodes: %d\n", stats.IndexedNodes)
-	fmt.Printf("Already indexed nodes: %d\n", stats.AlreadyIndexed)
+	if stats.IndexedNodes != 91247 {
+		err = errors.New("number of indexed nodes does not match")
+	}
 	return err
 }
 
