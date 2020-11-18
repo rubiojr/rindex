@@ -219,15 +219,15 @@ func (i Indexer) Search(ctx context.Context, query string, results chan SearchRe
 	var count uint64
 	match, err := iter.Next()
 	for err == nil && match != nil {
-		searchResult := SearchResult{}
+		searchResult := &SearchResult{}
 		err = match.VisitStoredFields(func(field string, value []byte) bool {
-			searchResult[field] = value
+			(*searchResult)[field] = value
 			return true
 		})
 		if err == nil {
 			count++
 			select {
-			case results <- searchResult:
+			case results <- *searchResult:
 			default:
 			}
 		}
