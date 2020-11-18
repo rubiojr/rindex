@@ -78,10 +78,10 @@ var DefaultIndexOptions = IndexOptions{
 }
 
 func New(indexPath string) Indexer {
-	_ = &opt.Options{
+	o := &opt.Options{
 		Filter: filter.NewBloomFilter(10),
 	}
-	db, err := leveldb.OpenFile(indexPath+".dcache", nil)
+	db, err := leveldb.OpenFile(indexPath+".dcache", o)
 	if err != nil {
 		panic(err)
 	}
