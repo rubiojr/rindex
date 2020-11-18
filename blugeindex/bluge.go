@@ -2,7 +2,6 @@ package blugeindex
 
 import (
 	"context"
-	"strings"
 
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/index"
@@ -126,18 +125,6 @@ func (i *BlugeIndex) Count() (uint64, error) {
 	return count, nil
 }
 
-func (i *BlugeIndex) Get(id string) (*search.DocumentMatch, error) {
-	var sb strings.Builder
-	sb.WriteString("_id:")
-	sb.WriteString(id)
-	iter, err := i.SearchWithQuery(sb.String())
-	if err != nil {
-		return nil, err
-	}
-
-	return iter.Next()
-}
-
 func (i *BlugeIndex) Search(q string, field string) (search.DocumentMatchIterator, error) {
 	reader, err := i.Reader()
 	if err != nil {
@@ -155,10 +142,10 @@ func (i *BlugeIndex) SearchWithQuery(q string) (search.DocumentMatchIterator, er
 		return nil, err
 	}
 	defer reader.Close()
-	return i.searchWithReaderAndQuery(q, reader)
+	return i.SearchWithReaderAndQuery(q, reader)
 }
 
-func (i *BlugeIndex) searchWithReaderAndQuery(q string, reader *bluge.Reader) (search.DocumentMatchIterator, error) {
+func (i *BlugeIndex) SearchWithReaderAndQuery(q string, reader *bluge.Reader) (search.DocumentMatchIterator, error) {
 	if q == "*" {
 		q = "_id:*"
 	}

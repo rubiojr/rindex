@@ -122,14 +122,53 @@ func TestSearch(t *testing.T) {
 	idx.Index(context.Background(), DefaultIndexOptions, nil)
 	idx.Close()
 
-	visitor := func(field string, val []byte) bool {
-		return true
-	}
-	results, err := idx.Search(context.Background(), "empty", visitor, DefaultSearchOptions)
+	c := make(chan SearchResult, 1)
+	results, err := idx.Search(context.Background(), "empty", c, DefaultSearchOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if results != 1 {
 		t.Errorf("should yield only one result, got %d", results)
+	}
+
+	select {
+	case res := <-c:
+		if string(res["filename"]) != "empty" {
+			t.Error("should return a file named empty")
+		}
+		if _, ok := res["blobs"]; !ok {
+			t.Error("should have a blobs field")
+		}
+		if _, ok := res["repository_id"]; !ok {
+			t.Error("should have a blobs field")
+		}
+		if _, ok := res["mod_time"]; !ok {
+			t.Error("should have a blobs field")
+		}
+	default:
+		t.Error("didn't get a result back")
+	}
+}
+
+func TestSearchWithQuery(t *testing.T) {
+	idx := New(indexPath())
+
+	idx.Index(context.Background(), DefaultIndexOptions, nil)
+	idx.Close()
+
+	results, err := idx.Search(context.Background(), "filename:*", nil, DefaultSearchOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results != 3 {
+		t.Errorf("should yield 3 results, got %d", results)
+	}
+
+	results, err = idx.Search(context.Background(), "filename:empty", nil, DefaultSearchOptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results != 1 {
+		t.Errorf("should yield 1 result, got %d", results)
 	}
 }
