@@ -9,11 +9,13 @@ import (
 	"strings"
 
 	"github.com/blugelabs/bluge"
-	"github.com/peterbourgon/diskv"
 	"github.com/rubiojr/rapi"
 	"github.com/rubiojr/rapi/repository"
 	"github.com/rubiojr/rapi/restic"
 	"github.com/rubiojr/rindex/blugeindex"
+	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/filter"
+	lopt "github.com/syndtr/goleveldb/leveldb/opt"
 )
 
 // DocumentBuilder is the interface custom indexers should implement
@@ -59,6 +61,7 @@ type SearchOptions struct {
 type Indexer struct {
 	IndexPath   string
 	IndexEngine *blugeindex.BlugeIndex
+	dcache      *leveldb.DB
 }
 
 const searchDefaultMaxResults = 100
@@ -74,16 +77,19 @@ var DefaultIndexOptions = IndexOptions{
 	DocumentBuilder: FileDocumentBuilder{},
 }
 
-var dcache *diskv.Diskv
-
 func New(indexPath string) Indexer {
-	dcache = diskv.New(diskv.Options{
-		BasePath:     indexPath + ".dcache",
-		CacheSizeMax: 1024 * 1024 * 1024,
-	})
+	o := &lopt.Options{
+		Filter: filter.NewBloomFilter(10),
+		NoSync: true,
+	}
+	db, err := leveldb.OpenFile(indexPath+".dcache", o)
+	if err != nil {
+		panic(err)
+	}
 	return Indexer{
 		IndexEngine: blugeindex.NewBlugeIndex(indexPath, 1),
 		IndexPath:   indexPath,
+		dcache:      db,
 	}
 }
 
@@ -148,12 +154,14 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 		return
 	}
 
-	fileID := nodeFileID(node)
+	fileIDBytes := nodeFileID(node)
 
-	if dcache.Has(fileID) {
+	if _, err := i.dcache.Get([]byte(fileIDBytes), nil); err == nil {
 		stats.AlreadyIndexed++
 		return
 	}
+
+	fileID := hex.EncodeToString(fileIDBytes)
 
 	fmatch, err := filepath.Match(opts.Filter, strings.ToLower(node.Name))
 	if err != nil {
@@ -182,7 +190,7 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 			stats.Errors = append(stats.Errors, err)
 		} else {
 			stats.IndexedNodes++
-			err := dcache.Write(fileID, []byte{})
+			err := i.dcache.Put(fileIDBytes, []byte{}, nil)
 			if err != nil {
 				stats.Errors = append(stats.Errors, err)
 			}
@@ -223,15 +231,16 @@ func (i Indexer) Search(ctx context.Context, query string, visitor func(string, 
 
 func (i Indexer) Close() {
 	i.IndexEngine.Close()
+	i.dcache.Close()
 }
 
-func nodeFileID(node *restic.Node) string {
+func nodeFileID(node *restic.Node) []byte {
 	var bb []byte
 	for _, c := range node.Content {
 		bb = append(bb, []byte(c[:])...)
 	}
 	sha := sha256.Sum256(bb)
-	return hex.EncodeToString(sha[:])
+	return sha[:]
 }
 
 func marshalBlobIDs(ids restic.IDs) string {
