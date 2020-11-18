@@ -218,8 +218,8 @@ func (i Indexer) Search(ctx context.Context, query string, results chan SearchRe
 
 	var count uint64
 	match, err := iter.Next()
-	searchResult := SearchResult{}
 	for err == nil && match != nil {
+		searchResult := SearchResult{}
 		err = match.VisitStoredFields(func(field string, value []byte) bool {
 			searchResult[field] = value
 			return true
