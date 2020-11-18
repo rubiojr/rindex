@@ -79,8 +79,8 @@ var DefaultIndexOptions = IndexOptions{
 
 func New(indexPath string) Indexer {
 	o := &opt.Options{
-		Filter:             filter.NewBloomFilter(10),
-		BlockCacheCapacity: 1024 * 1024 * 50,
+		Filter: filter.NewBloomFilter(10),
+		NoSync: true,
 	}
 	db, err := leveldb.OpenFile(indexPath+".dcache", o)
 	if err != nil {
