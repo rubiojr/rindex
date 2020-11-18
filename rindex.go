@@ -180,7 +180,7 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 		if opts.AppendFileMeta {
 			doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue()).
 				AddField(bluge.NewTextField("repository_id", repoID).StoreValue()).
-				AddField(bluge.NewDateTimeField("mod_time", node.ModTime).StoreValue()).
+				AddField(bluge.NewDateTimeField("mtime", node.ModTime).StoreValue()).
 				AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue()).
 				AddField(bluge.NewCompositeFieldExcluding("_all", nil))
 		}

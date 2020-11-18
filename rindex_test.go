@@ -140,10 +140,10 @@ func TestSearch(t *testing.T) {
 			t.Error("should have a blobs field")
 		}
 		if _, ok := res["repository_id"]; !ok {
-			t.Error("should have a blobs field")
+			t.Error("should have a repository_id field")
 		}
-		if _, ok := res["mod_time"]; !ok {
-			t.Error("should have a blobs field")
+		if _, ok := res["mtime"]; !ok {
+			t.Error("should have a mtime field")
 		}
 	default:
 		t.Error("didn't get a result back")
