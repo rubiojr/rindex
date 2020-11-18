@@ -54,7 +54,6 @@ type SearchResult map[string][]byte
 
 // SearchOptions to be passed to the Search function
 type SearchOptions struct {
-	MaxResults  int64
 	SearchField string
 }
 
@@ -64,11 +63,7 @@ type Indexer struct {
 	fileIDCache *leveldb.DB
 }
 
-const searchDefaultMaxResults = 100
-
-var DefaultSearchOptions = SearchOptions{
-	MaxResults: searchDefaultMaxResults,
-}
+var DefaultSearchOptions = SearchOptions{}
 
 var DefaultIndexOptions = IndexOptions{
 	Filter:          "*",
@@ -198,11 +193,6 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 }
 
 func (i Indexer) Search(ctx context.Context, query string, results chan SearchResult, opts SearchOptions) (uint64, error) {
-	maxRes := opts.MaxResults
-	if maxRes == 0 {
-		maxRes = searchDefaultMaxResults
-	}
-
 	idx := i.IndexEngine
 
 	reader, err := idx.OpenReader()
