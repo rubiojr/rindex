@@ -133,17 +133,8 @@ func TestSearch(t *testing.T) {
 
 	select {
 	case res := <-c:
-		if string(res["filename"]) != "empty" {
-			t.Error("should return a file named empty")
-		}
-		if _, ok := res["blobs"]; !ok {
-			t.Error("should have a blobs field")
-		}
-		if _, ok := res["repository_id"]; !ok {
-			t.Error("should have a blobs field")
-		}
-		if _, ok := res["mod_time"]; !ok {
-			t.Error("should have a blobs field")
+		if len(res) != 5 {
+			t.Errorf("every search result should have 5 rows by default, found %d", len(res))
 		}
 	default:
 		t.Error("didn't get a result back")

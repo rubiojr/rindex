@@ -49,8 +49,13 @@ type IndexOptions struct {
 	DocumentBuilder    DocumentBuilder
 }
 
+type SearchResult []SearchRow
+
 // SearchResult is returned for every search hit during a search process
-type SearchResult map[string][]byte
+type SearchRow struct {
+	Field string
+	Value []byte
+}
 
 // SearchOptions to be passed to the Search function
 type SearchOptions struct {
@@ -221,7 +226,10 @@ func (i Indexer) Search(ctx context.Context, query string, results chan SearchRe
 	for err == nil && match != nil {
 		searchResult := SearchResult{}
 		err = match.VisitStoredFields(func(field string, value []byte) bool {
-			searchResult[field] = value
+			row := SearchRow{}
+			row.Field = field
+			row.Value = value
+			searchResult = append(searchResult, row)
 			return true
 		})
 		if err == nil {
