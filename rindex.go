@@ -230,6 +230,7 @@ func (i Indexer) Search(ctx context.Context, query string, visitor func(string, 
 
 func (i Indexer) Close() {
 	i.IndexEngine.Close()
+	i.dcache.Close()
 }
 
 func nodeFileID(node *restic.Node) []byte {
