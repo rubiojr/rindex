@@ -9,11 +9,13 @@ import (
 	"strings"
 
 	"github.com/blugelabs/bluge"
-	"github.com/peterbourgon/diskv/v3"
 	"github.com/rubiojr/rapi"
 	"github.com/rubiojr/rapi/repository"
 	"github.com/rubiojr/rapi/restic"
 	"github.com/rubiojr/rindex/blugeindex"
+	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/filter"
+	"github.com/syndtr/goleveldb/leveldb/opt"
 )
 
 // DocumentBuilder is the interface custom indexers should implement
@@ -59,6 +61,7 @@ type SearchOptions struct {
 type Indexer struct {
 	IndexPath   string
 	IndexEngine *blugeindex.BlugeIndex
+	dcache      *leveldb.DB
 }
 
 const searchDefaultMaxResults = 100
@@ -74,16 +77,18 @@ var DefaultIndexOptions = IndexOptions{
 	DocumentBuilder: FileDocumentBuilder{},
 }
 
-var dcache *diskv.Diskv
-
 func New(indexPath string) Indexer {
-	dcache = diskv.New(diskv.Options{
-		BasePath:     indexPath + ".dcache",
-		CacheSizeMax: 1024 * 1024 * 10,
-	})
+	o := &opt.Options{
+		Filter: filter.NewBloomFilter(10),
+	}
+	db, err := leveldb.OpenFile(indexPath+".dcache", o)
+	if err != nil {
+		panic(err)
+	}
 	return Indexer{
 		IndexEngine: blugeindex.NewBlugeIndex(indexPath, 1),
 		IndexPath:   indexPath,
+		dcache:      db,
 	}
 }
 
@@ -150,7 +155,7 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 
 	fileID := nodeFileID(node)
 
-	if dcache.Has(fileID) {
+	if _, err := i.dcache.Get([]byte(fileID), nil); err == nil {
 		stats.AlreadyIndexed++
 		return
 	}
@@ -182,7 +187,7 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 			stats.Errors = append(stats.Errors, err)
 		} else {
 			stats.IndexedNodes++
-			err := dcache.Write(fileID, []byte{})
+			err := i.dcache.Put([]byte(fileID), []byte{}, nil)
 			if err != nil {
 				stats.Errors = append(stats.Errors, err)
 			}

@@ -8,4 +8,5 @@ require (
 	github.com/go-ole/go-ole v1.2.4 // indirect
 	github.com/peterbourgon/diskv/v3 v3.0.0
 	github.com/rubiojr/rapi v0.0.0-20201105183828-9566648c5c9b
+	github.com/syndtr/goleveldb v1.0.0
 )
