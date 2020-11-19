@@ -26,7 +26,10 @@ func TestMain(m *testing.M) {
 
 func TestSetBatchSize(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx := New(indexPath())
+	idx, err := New(indexPath())
+	if err != nil {
+		t.Fatal(err)
+	}
 	idxOpts := IndexOptions{
 		Filter:             "*",
 		BatchSize:          10,
@@ -41,7 +44,10 @@ func TestSetBatchSize(t *testing.T) {
 
 func TestIndexWithPath(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx := New(indexPath())
+	idx, err := New(indexPath())
+	if err != nil {
+		t.Fatal(err)
+	}
 	idxOpts := IndexOptions{
 		Filter:             "*",
 		RepositoryLocation: "tmp/repo",
@@ -86,7 +92,10 @@ func TestIndexWithPath(t *testing.T) {
 
 func TestIndexWithEngine(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx := New(indexPath())
+	idx, err := New(indexPath())
+	if err != nil {
+		t.Fatal(err)
+	}
 	idx.IndexEngine = blugeindex.NewBlugeIndex("tmp/test2.idx", 10)
 	opts := IndexOptions{
 		RepositoryLocation: "tmp/repo",
@@ -106,7 +115,10 @@ func TestIndexWithEngine(t *testing.T) {
 
 func TestIndexWithUnbufferedProgress(t *testing.T) {
 	progress := make(chan IndexStats)
-	idx := New(indexPath())
+	idx, err := New(indexPath())
+	if err != nil {
+		t.Fatal(err)
+	}
 	stats, err := idx.Index(context.Background(), DefaultIndexOptions, progress)
 	if err != nil {
 		t.Error(err)

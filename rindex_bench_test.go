@@ -17,7 +17,11 @@ func benchIndex(batchSize uint) error {
 	os.Setenv("RESTIC_PASSWORD", "test")
 	os.RemoveAll("/tmp/rindex-tests")
 
-	idx := New(devIndexPath)
+	idx, err := New(devIndexPath)
+	if err != nil {
+		return err
+	}
+
 	idxOpts := IndexOptions{
 		Filter:             "*",
 		BatchSize:          batchSize,

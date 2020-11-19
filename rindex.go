@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -62,15 +64,21 @@ var DefaultIndexOptions = IndexOptions{
 	DocumentBuilder: FileDocumentBuilder{},
 }
 
-func New(indexPath string) Indexer {
+func New(indexPath string) (Indexer, error) {
+	indexer := Indexer{}
 	if indexPath == "" {
-		panic(indexPath)
+		return indexer, errors.New("index path can't be empty")
 	}
 
-	return Indexer{
-		IndexEngine: blugeindex.NewBlugeIndex(indexPath, 1),
-		IndexPath:   indexPath,
+	err := os.MkdirAll(indexPath, 0755)
+	if err != nil {
+		return indexer, err
 	}
+
+	indexer.IndexEngine = blugeindex.NewBlugeIndex(indexPath, 1)
+	indexer.IndexPath = indexPath
+
+	return indexer, nil
 }
 
 func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan IndexStats) (IndexStats, error) {
