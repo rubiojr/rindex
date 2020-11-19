@@ -63,29 +63,37 @@ var DefaultIndexOptions = IndexOptions{
 }
 
 func New(indexPath string) Indexer {
-	o := &lopt.Options{
-		Filter: filter.NewBloomFilter(10),
-		NoSync: true,
+	if indexPath == "" {
+		panic(indexPath)
 	}
-	db, err := leveldb.OpenFile(indexPath+".fidcache", o)
-	if err != nil {
-		panic(err)
-	}
+
 	return Indexer{
 		IndexEngine: blugeindex.NewBlugeIndex(indexPath, 1),
 		IndexPath:   indexPath,
-		fileIDCache: db,
 	}
 }
 
 func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan IndexStats) (IndexStats, error) {
+	var err error
+
 	if opts.DocumentBuilder == nil {
 		opts.DocumentBuilder = FileDocumentBuilder{}
 	}
 	if opts.Filter == "" {
 		opts.Filter = "*"
 	}
+
 	i.IndexEngine.SetBatchSize(opts.BatchSize)
+	stats := IndexStats{Errors: []error{}}
+
+	o := &lopt.Options{
+		Filter: filter.NewBloomFilter(10),
+		NoSync: true,
+	}
+	i.fileIDCache, err = leveldb.OpenFile(i.IndexPath+".fidcache", o)
+	if err != nil {
+		return stats, nil
+	}
 
 	ropts := rapi.DefaultOptions
 	ropts.Password = opts.RepositoryPassword
@@ -96,7 +104,6 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 	}
 	repoID := repo.Config().ID
 
-	stats := IndexStats{Errors: []error{}}
 	if err = repo.LoadIndex(ctx); err != nil {
 		return stats, err
 	}
@@ -130,7 +137,8 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 		}
 	}
 
-	return stats, i.IndexEngine.Close()
+	i.Close()
+	return stats, nil
 }
 
 func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID string, opts IndexOptions, node *restic.Node, stats *IndexStats) {
@@ -184,8 +192,14 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 }
 
 func (i Indexer) Close() {
-	i.IndexEngine.Close()
-	i.fileIDCache.Close()
+	err := i.IndexEngine.Close()
+	if err != nil {
+		panic(err)
+	}
+	err = i.fileIDCache.Close()
+	if err != nil {
+		panic(err)
+	}
 }
 
 func nodeFileID(node *restic.Node) []byte {
