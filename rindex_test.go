@@ -77,13 +77,29 @@ func TestIndexWithPath(t *testing.T) {
 		t.Error("errors found while indexing")
 	}
 
-	// reindex
+	// reindex not enabled
 	stats, err = idx.Index(context.Background(), idxOpts, progress)
 	if err != nil {
 		t.Error(err)
 	}
 	if stats.IndexedNodes != 0 {
 		t.Errorf("invalid number of indexed nodes %+v", stats)
+	}
+	if len(stats.Errors) != 0 {
+		t.Error("errors found while indexing")
+	}
+
+	// reindex enabled
+	idxOpts.Reindex = true
+	stats, err = idx.Index(context.Background(), idxOpts, progress)
+	if err != nil {
+		t.Error(err)
+	}
+	if stats.IndexedNodes != 3 {
+		t.Errorf("invalid number of indexed nodes %+v", stats)
+	}
+	if stats.Updated != 3 {
+		t.Errorf("invalid number of updated nodes %+v", stats)
 	}
 	if len(stats.Errors) != 0 {
 		t.Error("errors found while indexing")

@@ -36,6 +36,7 @@ type IndexStats struct {
 	IndexedNodes   uint64
 	AlreadyIndexed uint64
 	DataBlobs      uint64
+	Updated        uint64
 	Errors         []error
 	LastScanned    string
 	LastMatch      string
@@ -48,6 +49,7 @@ type IndexOptions struct {
 	Filter             string
 	BatchSize          uint
 	AppendFileMeta     bool
+	Reindex            bool
 	DocumentBuilder    DocumentBuilder
 }
 
@@ -55,6 +57,7 @@ type Indexer struct {
 	IndexPath   string
 	IndexEngine *blugeindex.BlugeIndex
 	fileIDCache *leveldb.DB
+	tmpIDCache  *leveldb.DB
 }
 
 var DefaultIndexOptions = IndexOptions{
@@ -81,7 +84,7 @@ func New(indexPath string) (Indexer, error) {
 	return indexer, nil
 }
 
-func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan IndexStats) (IndexStats, error) {
+func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan IndexStats) (IndexStats, error) {
 	var err error
 
 	if opts.DocumentBuilder == nil {
@@ -94,13 +97,9 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 	i.IndexEngine.SetBatchSize(opts.BatchSize)
 	stats := IndexStats{Errors: []error{}}
 
-	o := &lopt.Options{
-		Filter: filter.NewBloomFilter(10),
-		NoSync: true,
-	}
-	i.fileIDCache, err = leveldb.OpenFile(i.IndexPath+".fidcache", o)
+	err = i.initCaches()
 	if err != nil {
-		return stats, nil
+		return stats, err
 	}
 
 	ropts := rapi.DefaultOptions
@@ -149,7 +148,45 @@ func (i Indexer) Index(ctx context.Context, opts IndexOptions, progress chan Ind
 	return stats, nil
 }
 
-func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID string, opts IndexOptions, node *restic.Node, stats *IndexStats) {
+func (i *Indexer) initCaches() error {
+	var err error
+
+	o := &lopt.Options{
+		Filter: filter.NewBloomFilter(10),
+		NoSync: true,
+	}
+
+	i.fileIDCache, err = leveldb.OpenFile(i.IndexPath+".fidcache", o)
+	if err != nil {
+		return err
+	}
+
+	err = os.RemoveAll(i.IndexPath + ".tmpidcache")
+	if err != nil {
+		return err
+	}
+
+	i.tmpIDCache, err = leveldb.OpenFile(i.IndexPath+".tmpidcache", o)
+	return err
+}
+
+func (i *Indexer) needsIndexing(fileID []byte, opts IndexOptions) (bool, bool) {
+	var err error
+	// we've visited this node already
+	// This prevents re-indexing duplicated files
+	if _, err = i.tmpIDCache.Get(fileID, nil); err == nil && opts.Reindex {
+		return false, true
+	}
+
+	// node not visited this run but maybe was indexed previously
+	if _, err = i.fileIDCache.Get(fileID, nil); err == nil && !opts.Reindex {
+		return false, true
+	}
+
+	return true, err == nil
+}
+
+func (i *Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID string, opts IndexOptions, node *restic.Node, stats *IndexStats) {
 	if node.Type != "file" {
 		stats.NonFileNodes++
 		return
@@ -157,9 +194,14 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 
 	fileIDBytes := nodeFileID(node)
 
-	if _, err := i.fileIDCache.Get([]byte(fileIDBytes), nil); err == nil {
+	needs, found := i.needsIndexing(fileIDBytes, opts)
+	if !needs {
 		stats.AlreadyIndexed++
 		return
+	}
+
+	if found {
+		stats.Updated++
 	}
 
 	fileID := hex.EncodeToString(fileIDBytes)
@@ -191,7 +233,7 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 			stats.Errors = append(stats.Errors, err)
 		} else {
 			stats.IndexedNodes++
-			err := i.fileIDCache.Put(fileIDBytes, []byte{}, nil)
+			err = i.addToCaches(fileIDBytes)
 			if err != nil {
 				stats.Errors = append(stats.Errors, err)
 			}
@@ -199,12 +241,24 @@ func (i Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID st
 	}
 }
 
-func (i Indexer) Close() {
+func (i *Indexer) addToCaches(fileID []byte) error {
+	err := i.fileIDCache.Put(fileID, []byte{}, nil)
+	if err != nil {
+		return err
+	}
+	return i.tmpIDCache.Put(fileID, []byte{}, nil)
+}
+
+func (i *Indexer) Close() {
 	err := i.IndexEngine.Close()
 	if err != nil {
 		panic(err)
 	}
 	err = i.fileIDCache.Close()
+	if err != nil {
+		panic(err)
+	}
+	err = i.tmpIDCache.Close()
 	if err != nil {
 		panic(err)
 	}
