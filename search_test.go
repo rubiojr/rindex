@@ -47,6 +47,9 @@ func TestSearchAll(t *testing.T) {
 	}
 
 	_, err = idx.Index(context.Background(), DefaultIndexOptions, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	found := map[string]bool{}
 	visitor := func(field string, value []byte) bool {
