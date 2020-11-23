@@ -15,7 +15,7 @@ var seededRand *rand.Rand = rand.New(
 	rand.NewSource(time.Now().UnixNano()))
 
 func indexPath() string {
-	return fmt.Sprintf("tmp/test%d.idx", rand.Intn(100000))
+	return fmt.Sprintf("tmp/%d/test.idx", rand.Intn(100000))
 }
 
 func TestMain(m *testing.M) {
@@ -64,7 +64,7 @@ func TestIndexWithPath(t *testing.T) {
 	if stats.ScannedNodes != 6 {
 		t.Errorf("%+v", stats)
 	}
-	if stats.ScannedTrees != 3 {
+	if stats.ScannedFiles != 4 {
 		t.Errorf("%+v", stats)
 	}
 	if stats.AlreadyIndexed != 1 {
@@ -81,6 +81,10 @@ func TestIndexWithPath(t *testing.T) {
 	stats, err = idx.Index(context.Background(), idxOpts, progress)
 	if err != nil {
 		t.Error(err)
+	}
+	// previously scanned snapshots are ignored, so it won't scan more nodes
+	if stats.ScannedNodes != 0 {
+		t.Errorf("invalid number of indexed nodes %+v", stats)
 	}
 	if stats.IndexedNodes != 0 {
 		t.Errorf("invalid number of indexed nodes %+v", stats)

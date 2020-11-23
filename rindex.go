@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/rubiojr/rapi"
 	"github.com/rubiojr/rapi/repository"
 	"github.com/rubiojr/rapi/restic"
+	"github.com/rubiojr/rapi/walker"
 	"github.com/rubiojr/rindex/blugeindex"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/filter"
@@ -28,15 +30,13 @@ type DocumentBuilder interface {
 // IndexStats is returned every time an new document is indexed or when
 // the indexing process finishes.
 type IndexStats struct {
-	TreeBlobs      uint64
-	NonFileNodes   uint64
 	Mismatch       uint64
 	ScannedNodes   uint64
-	ScannedTrees   uint64
 	IndexedNodes   uint64
 	AlreadyIndexed uint64
 	DataBlobs      uint64
 	Updated        uint64
+	ScannedFiles   uint64
 	Errors         []error
 	LastScanned    string
 	LastMatch      string
@@ -56,8 +56,9 @@ type IndexOptions struct {
 type Indexer struct {
 	IndexPath   string
 	IndexEngine *blugeindex.BlugeIndex
-	fileIDCache *leveldb.DB
-	tmpIDCache  *leveldb.DB
+	idCache     *leveldb.DB
+	idTmpCache  *leveldb.DB
+	snapCache   *leveldb.DB
 }
 
 var DefaultIndexOptions = IndexOptions{
@@ -109,7 +110,6 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 	if err != nil {
 		return IndexStats{}, err
 	}
-	repoID := repo.Config().ID
 
 	if err = repo.LoadIndex(ctx); err != nil {
 		return stats, err
@@ -117,33 +117,18 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 
 	idx := repo.Index()
 	stats.DataBlobs = uint64(idx.Count(restic.DataBlob))
-	treeBlobs := []restic.ID{}
-	for blob := range idx.Each(ctx) {
-		if blob.Type == restic.TreeBlob {
-			treeBlobs = append(treeBlobs, blob.ID)
-		}
-	}
 
-	for _, blob := range treeBlobs {
-		stats.ScannedTrees++
-		repo.LoadBlob(ctx, restic.TreeBlob, blob, nil)
-		tree, err := repo.LoadTree(ctx, blob)
-		if err != nil {
-			stats.Errors = append(stats.Errors, err)
+	snaps, _ := listSnapshots(ctx, repo)
+	for snap := range snaps {
+		if _, err := i.snapCache.Get(snap.ID()[:], nil); err == nil && !opts.Reindex {
 			continue
 		}
-
-		for _, node := range tree.Nodes {
-			stats.ScannedNodes++
-			stats.LastScanned = node.Name
-			select {
-			case progress <- stats:
-			default:
-			}
-			i.scanNode(repo, blob, repoID, opts, node, &stats)
+		i.walkSnapshot(ctx, repo, snap, &stats, opts, progress)
+		err := i.snapCache.Put(snap.ID()[:], []byte{}, nil)
+		if err != nil {
+			stats.Errors = append(stats.Errors, err)
 		}
 	}
-
 	i.Close()
 	return stats, nil
 }
@@ -151,22 +136,35 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 func (i *Indexer) initCaches() error {
 	var err error
 
+	indexDir := filepath.Dir(i.IndexPath)
+	cacheDir := filepath.Join(indexDir, "cache")
+	idCache := filepath.Join(cacheDir, "id.cache")
+	idTmpCache := filepath.Join(cacheDir, "idtmp.cache")
+	snapCache := filepath.Join(cacheDir, "snap.cache")
+
+	os.MkdirAll(cacheDir, 0755)
+
 	o := &lopt.Options{
 		Filter: filter.NewBloomFilter(10),
 		NoSync: true,
 	}
 
-	i.fileIDCache, err = leveldb.OpenFile(i.IndexPath+".fidcache", o)
+	i.idCache, err = leveldb.OpenFile(idCache, o)
 	if err != nil {
 		return err
 	}
 
-	err = os.RemoveAll(i.IndexPath + ".tmpidcache")
+	i.snapCache, err = leveldb.OpenFile(snapCache, o)
 	if err != nil {
 		return err
 	}
 
-	i.tmpIDCache, err = leveldb.OpenFile(i.IndexPath+".tmpidcache", o)
+	err = os.RemoveAll(idTmpCache)
+	if err != nil {
+		return err
+	}
+
+	i.idTmpCache, err = leveldb.OpenFile(idTmpCache, o)
 	return err
 }
 
@@ -174,21 +172,39 @@ func (i *Indexer) needsIndexing(fileID []byte, opts IndexOptions) (bool, bool) {
 	var err error
 	// we've visited this node already
 	// This prevents re-indexing duplicated files
-	if _, err = i.tmpIDCache.Get(fileID, nil); err == nil && opts.Reindex {
+	if _, err = i.idTmpCache.Get(fileID, nil); err == nil && opts.Reindex {
 		return false, true
 	}
 
 	// node not visited this run but maybe was indexed previously
-	if _, err = i.fileIDCache.Get(fileID, nil); err == nil && !opts.Reindex {
+	if _, err = i.idCache.Get(fileID, nil); err == nil && !opts.Reindex {
 		return false, true
 	}
 
 	return true, err == nil
 }
 
-func (i *Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID string, opts IndexOptions, node *restic.Node, stats *IndexStats) {
+func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts IndexOptions, node *restic.Node, nodepath string, host string, stats *IndexStats) {
+	if node == nil {
+		return
+	}
+
+	stats.ScannedNodes++
+
 	if node.Type != "file" {
-		stats.NonFileNodes++
+		return
+	}
+
+	stats.ScannedFiles++
+
+	fmatch, err := filepath.Match(opts.Filter, strings.ToLower(node.Name))
+	if err != nil {
+		stats.Errors = append(stats.Errors, err)
+		return
+	}
+
+	if !fmatch {
+		stats.Mismatch++
 		return
 	}
 
@@ -206,23 +222,14 @@ func (i *Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID s
 
 	fileID := hex.EncodeToString(fileIDBytes)
 
-	fmatch, err := filepath.Match(opts.Filter, strings.ToLower(node.Name))
-	if err != nil {
-		stats.Errors = append(stats.Errors, err)
-		return
-	}
-
-	if !fmatch {
-		stats.Mismatch++
-		return
-	}
-
 	stats.LastMatch = node.Name
 
 	if doc, ok := opts.DocumentBuilder.ShouldIndex(fileID, *i.IndexEngine, node, repo); ok {
 		if opts.AppendFileMeta {
 			doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue()).
 				AddField(bluge.NewTextField("repository_id", repoID).StoreValue()).
+				AddField(bluge.NewTextField("path", nodepath).StoreValue()).
+				AddField(bluge.NewTextField("hostname", host).StoreValue()).
 				AddField(bluge.NewDateTimeField("mtime", node.ModTime).StoreValue()).
 				AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue()).
 				AddField(bluge.NewNumericField("size", float64(node.Size)).StoreValue()).
@@ -242,11 +249,11 @@ func (i *Indexer) scanNode(repo *repository.Repository, blob restic.ID, repoID s
 }
 
 func (i *Indexer) addToCaches(fileID []byte) error {
-	err := i.fileIDCache.Put(fileID, []byte{}, nil)
+	err := i.idCache.Put(fileID, []byte{}, nil)
 	if err != nil {
 		return err
 	}
-	return i.tmpIDCache.Put(fileID, []byte{}, nil)
+	return i.idTmpCache.Put(fileID, []byte{}, nil)
 }
 
 func (i *Indexer) Close() {
@@ -254,14 +261,40 @@ func (i *Indexer) Close() {
 	if err != nil {
 		panic(err)
 	}
-	err = i.fileIDCache.Close()
+	err = i.idCache.Close()
 	if err != nil {
 		panic(err)
 	}
-	err = i.tmpIDCache.Close()
+	err = i.idTmpCache.Close()
 	if err != nil {
 		panic(err)
 	}
+	err = i.snapCache.Close()
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (i *Indexer) walkSnapshot(ctx context.Context, repo *repository.Repository, sn *restic.Snapshot, stats *IndexStats, opts IndexOptions, progress chan IndexStats) error {
+	if sn.Tree == nil {
+		return fmt.Errorf("snapshot %v has no tree", sn.ID().Str())
+	}
+
+	return walker.Walk(ctx, repo, *sn.Tree, nil, func(parentTreeID restic.ID, nodepath string, node *restic.Node, err error) (bool, error) {
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading tree %v: %v\n", parentTreeID, err)
+
+			return false, walker.ErrSkipNode
+		}
+
+		i.scanNode(repo, repo.Config().ID, opts, node, nodepath, sn.Hostname, stats)
+		select {
+		case progress <- *stats:
+		default:
+		}
+		return true, nil
+	})
+
 }
 
 func nodeFileID(node *restic.Node) []byte {
@@ -279,4 +312,39 @@ func marshalBlobIDs(ids restic.IDs) string {
 		panic(err)
 	}
 	return string(j)
+}
+
+func listSnapshots(ctx context.Context, repo *repository.Repository) (<-chan *restic.Snapshot, <-chan error) {
+	out := make(chan *restic.Snapshot)
+	errc := make(chan error, 1)
+	go func() {
+		defer close(out)
+
+		snapshots := []*restic.Snapshot{}
+
+		err := repo.List(ctx, restic.SnapshotFile, func(id restic.ID, size int64) error {
+			sn, err := restic.LoadSnapshot(ctx, repo, id)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "could not load snapshot %v: %v\n", id.Str(), err)
+				return nil
+			}
+			snapshots = append(snapshots, sn)
+			return nil
+		})
+
+		if err != nil {
+			errc <- err
+			return
+		}
+
+		for _, sn := range snapshots {
+			select {
+			case <-ctx.Done():
+				return
+			case out <- sn:
+			}
+		}
+	}()
+
+	return out, errc
 }
