@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/blugelabs/bluge"
 	"github.com/rubiojr/rapi"
@@ -24,7 +23,17 @@ import (
 
 // DocumentBuilder is the interface custom indexers should implement
 type DocumentBuilder interface {
-	ShouldIndex(string, blugeindex.BlugeIndex, *restic.Node, *repository.Repository) (*bluge.Document, bool)
+	BuildDocument(string, blugeindex.BlugeIndex, *restic.Node, *repository.Repository) *bluge.Document
+}
+
+type FileMatcher interface {
+	ShouldIndex(path string) bool
+}
+
+type MatchAllFileMatcher struct{}
+
+func (m *MatchAllFileMatcher) ShouldIndex(path string) bool {
+	return true
 }
 
 // IndexStats is returned every time an new document is indexed or when
@@ -46,7 +55,7 @@ type IndexStats struct {
 type IndexOptions struct {
 	RepositoryLocation string
 	RepositoryPassword string
-	Filter             string
+	FileMatcher        FileMatcher
 	BatchSize          uint
 	AppendFileMeta     bool
 	Reindex            bool
@@ -62,7 +71,7 @@ type Indexer struct {
 }
 
 var DefaultIndexOptions = IndexOptions{
-	Filter:          "*",
+	FileMatcher:     &MatchAllFileMatcher{},
 	BatchSize:       1,
 	AppendFileMeta:  true,
 	DocumentBuilder: FileDocumentBuilder{},
@@ -91,8 +100,8 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 	if opts.DocumentBuilder == nil {
 		opts.DocumentBuilder = FileDocumentBuilder{}
 	}
-	if opts.Filter == "" {
-		opts.Filter = "*"
+	if opts.FileMatcher == nil {
+		opts.FileMatcher = &MatchAllFileMatcher{}
 	}
 
 	i.IndexEngine.SetBatchSize(opts.BatchSize)
@@ -197,13 +206,7 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 
 	stats.ScannedFiles++
 
-	fmatch, err := filepath.Match(opts.Filter, strings.ToLower(node.Name))
-	if err != nil {
-		stats.Errors = append(stats.Errors, err)
-		return
-	}
-
-	if !fmatch {
+	if !opts.FileMatcher.ShouldIndex(nodepath) {
 		stats.Mismatch++
 		return
 	}
@@ -224,26 +227,25 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 
 	stats.LastMatch = node.Name
 
-	if doc, ok := opts.DocumentBuilder.ShouldIndex(fileID, *i.IndexEngine, node, repo); ok {
-		if opts.AppendFileMeta {
-			doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue()).
-				AddField(bluge.NewTextField("repository_id", repoID).StoreValue()).
-				AddField(bluge.NewTextField("path", nodepath).StoreValue()).
-				AddField(bluge.NewTextField("hostname", host).StoreValue()).
-				AddField(bluge.NewDateTimeField("mtime", node.ModTime).StoreValue()).
-				AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue()).
-				AddField(bluge.NewNumericField("size", float64(node.Size)).StoreValue()).
-				AddField(bluge.NewCompositeFieldExcluding("_all", nil))
-		}
-		err = i.IndexEngine.Index(doc)
+	doc := opts.DocumentBuilder.BuildDocument(fileID, *i.IndexEngine, node, repo)
+	if opts.AppendFileMeta {
+		doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue()).
+			AddField(bluge.NewTextField("repository_id", repoID).StoreValue()).
+			AddField(bluge.NewTextField("path", nodepath).StoreValue()).
+			AddField(bluge.NewTextField("hostname", host).StoreValue()).
+			AddField(bluge.NewDateTimeField("mtime", node.ModTime).StoreValue()).
+			AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue()).
+			AddField(bluge.NewNumericField("size", float64(node.Size)).StoreValue()).
+			AddField(bluge.NewCompositeFieldExcluding("_all", nil))
+	}
+	err := i.IndexEngine.Index(doc)
+	if err != nil {
+		stats.Errors = append(stats.Errors, err)
+	} else {
+		stats.IndexedNodes++
+		err = i.addToCaches(fileIDBytes)
 		if err != nil {
 			stats.Errors = append(stats.Errors, err)
-		} else {
-			stats.IndexedNodes++
-			err = i.addToCaches(fileIDBytes)
-			if err != nil {
-				stats.Errors = append(stats.Errors, err)
-			}
 		}
 	}
 }

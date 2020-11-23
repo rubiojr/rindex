@@ -31,7 +31,6 @@ func TestSetBatchSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	idxOpts := IndexOptions{
-		Filter:             "*",
 		BatchSize:          10,
 		RepositoryLocation: "tmp/repo",
 		RepositoryPassword: "test",
@@ -49,7 +48,6 @@ func TestIndexWithPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	idxOpts := IndexOptions{
-		Filter:             "*",
 		RepositoryLocation: "tmp/repo",
 		RepositoryPassword: "test",
 	}

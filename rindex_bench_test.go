@@ -23,7 +23,6 @@ func benchIndex(batchSize uint) error {
 	}
 
 	idxOpts := IndexOptions{
-		Filter:             "*",
 		BatchSize:          batchSize,
 		RepositoryLocation: os.Getenv("RESTIC_REPOSITORY"),
 		RepositoryPassword: os.Getenv("RESTIC_PASSWORD"),

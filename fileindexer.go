@@ -9,6 +9,6 @@ import (
 
 type FileDocumentBuilder struct{}
 
-func (i FileDocumentBuilder) ShouldIndex(fileID string, bindex blugeindex.BlugeIndex, node *restic.Node, repo *repository.Repository) (*bluge.Document, bool) {
-	return bluge.NewDocument(fileID), true
+func (i FileDocumentBuilder) BuildDocument(fileID string, bindex blugeindex.BlugeIndex, node *restic.Node, repo *repository.Repository) *bluge.Document {
+	return bluge.NewDocument(fileID)
 }
