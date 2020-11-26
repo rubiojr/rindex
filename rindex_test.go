@@ -31,7 +31,6 @@ func TestSetBatchSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	idxOpts := IndexOptions{
-		Filter:             "*",
 		BatchSize:          10,
 		RepositoryLocation: "tmp/repo",
 		RepositoryPassword: "test",
@@ -49,7 +48,6 @@ func TestIndexWithPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	idxOpts := IndexOptions{
-		Filter:             "*",
 		RepositoryLocation: "tmp/repo",
 		RepositoryPassword: "test",
 	}
@@ -58,7 +56,7 @@ func TestIndexWithPath(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if stats.IndexedNodes != 3 {
+	if stats.IndexedFiles != 3 {
 		t.Errorf("%+v", stats)
 	}
 	if stats.ScannedNodes != 6 {
@@ -86,7 +84,7 @@ func TestIndexWithPath(t *testing.T) {
 	if stats.ScannedNodes != 0 {
 		t.Errorf("invalid number of indexed nodes %+v", stats)
 	}
-	if stats.IndexedNodes != 0 {
+	if stats.IndexedFiles != 0 {
 		t.Errorf("invalid number of indexed nodes %+v", stats)
 	}
 	if len(stats.Errors) != 0 {
@@ -99,11 +97,11 @@ func TestIndexWithPath(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if stats.IndexedNodes != 3 {
-		t.Errorf("invalid number of indexed nodes %+v", stats)
+	if stats.IndexedFiles != 3 {
+		t.Errorf("invalid number of indexed files %+v", stats)
 	}
-	if stats.Updated != 3 {
-		t.Errorf("invalid number of updated nodes %+v", stats)
+	if stats.ScannedFiles != 4 {
+		t.Errorf("%+v", stats)
 	}
 	if len(stats.Errors) != 0 {
 		t.Error("errors found while indexing")
@@ -125,7 +123,7 @@ func TestIndexWithEngine(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if stats.IndexedNodes != 3 {
+	if stats.IndexedFiles != 3 {
 		t.Errorf("%+v", stats)
 	}
 	if len(stats.Errors) != 0 {
@@ -143,7 +141,7 @@ func TestIndexWithUnbufferedProgress(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if stats.IndexedNodes != 3 {
+	if stats.IndexedFiles != 3 {
 		t.Errorf("%+v", stats)
 	}
 }

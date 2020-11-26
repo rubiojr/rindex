@@ -23,13 +23,12 @@ func benchIndex(batchSize uint) error {
 	}
 
 	idxOpts := IndexOptions{
-		Filter:             "*",
 		BatchSize:          batchSize,
 		RepositoryLocation: os.Getenv("RESTIC_REPOSITORY"),
 		RepositoryPassword: os.Getenv("RESTIC_PASSWORD"),
 	}
 	stats, err := idx.Index(context.Background(), idxOpts, nil)
-	if stats.IndexedNodes != 91247 {
+	if stats.IndexedFiles != 91247 {
 		err = errors.New("number of indexed nodes does not match")
 	}
 	return err
