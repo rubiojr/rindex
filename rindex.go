@@ -26,16 +26,6 @@ type DocumentBuilder interface {
 	BuildDocument(string, blugeindex.BlugeIndex, *restic.Node, *repository.Repository) *bluge.Document
 }
 
-type FileMatcher interface {
-	ShouldIndex(path string) bool
-}
-
-type MatchAllFileMatcher struct{}
-
-func (m *MatchAllFileMatcher) ShouldIndex(path string) bool {
-	return true
-}
-
 // IndexStats is returned every time an new document is indexed or when
 // the indexing process finishes.
 type IndexStats struct {
@@ -55,7 +45,7 @@ type IndexStats struct {
 type IndexOptions struct {
 	RepositoryLocation string
 	RepositoryPassword string
-	FileMatcher        FileMatcher
+	Filter             Filter
 	BatchSize          uint
 	AppendFileMeta     bool
 	Reindex            bool
@@ -71,7 +61,7 @@ type Indexer struct {
 }
 
 var DefaultIndexOptions = IndexOptions{
-	FileMatcher:     &MatchAllFileMatcher{},
+	Filter:          &MatchAllFilter{},
 	BatchSize:       1,
 	AppendFileMeta:  true,
 	DocumentBuilder: FileDocumentBuilder{},
@@ -100,8 +90,8 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 	if opts.DocumentBuilder == nil {
 		opts.DocumentBuilder = FileDocumentBuilder{}
 	}
-	if opts.FileMatcher == nil {
-		opts.FileMatcher = &MatchAllFileMatcher{}
+	if opts.Filter == nil {
+		opts.Filter = &MatchAllFilter{}
 	}
 
 	i.IndexEngine.SetBatchSize(opts.BatchSize)
@@ -207,7 +197,7 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 
 	stats.ScannedFiles++
 
-	if !opts.FileMatcher.ShouldIndex(nodepath) {
+	if !opts.Filter.ShouldIndex(nodepath) {
 		stats.Mismatch++
 		return
 	}
