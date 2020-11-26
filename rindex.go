@@ -39,15 +39,16 @@ func (m *MatchAllFileMatcher) ShouldIndex(path string) bool {
 // IndexStats is returned every time an new document is indexed or when
 // the indexing process finishes.
 type IndexStats struct {
-	Mismatch       uint64
-	ScannedNodes   uint64
-	IndexedFiles   uint64
-	AlreadyIndexed uint64
-	ScannedFiles   uint64
-	DataBlobs      uint64
-	Errors         []error
-	LastScanned    string
-	LastMatch      string
+	Mismatch         uint64
+	ScannedNodes     uint64
+	IndexedFiles     uint64
+	ScannedSnapshots uint64
+	AlreadyIndexed   uint64
+	ScannedFiles     uint64
+	DataBlobs        uint64
+	Errors           []error
+	LastScanned      string
+	LastMatch        string
 }
 
 // IndexOptions to be passed to Index
@@ -131,6 +132,7 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 		if _, err := i.snapCache.Get(snap.ID()[:], nil); err == nil && !opts.Reindex {
 			continue
 		}
+		stats.ScannedSnapshots++
 		i.walkSnapshot(ctx, repo, snap, &stats, opts, progress)
 		err := i.snapCache.Put(snap.ID()[:], []byte{}, nil)
 		if err != nil {

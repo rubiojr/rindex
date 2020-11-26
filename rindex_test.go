@@ -59,6 +59,9 @@ func TestIndexWithPath(t *testing.T) {
 	if stats.IndexedFiles != 3 {
 		t.Errorf("%+v", stats)
 	}
+	if stats.ScannedSnapshots != 1 {
+		t.Errorf("%+v", stats)
+	}
 	if stats.ScannedNodes != 6 {
 		t.Errorf("%+v", stats)
 	}
@@ -82,10 +85,13 @@ func TestIndexWithPath(t *testing.T) {
 	}
 	// previously scanned snapshots are ignored, so it won't scan more nodes
 	if stats.ScannedNodes != 0 {
-		t.Errorf("invalid number of indexed nodes %+v", stats)
+		t.Errorf("invalid number of scanned nodes %+v", stats)
+	}
+	if stats.ScannedSnapshots != 0 {
+		t.Errorf("invalid number of indexed snapshots %+v", stats)
 	}
 	if stats.IndexedFiles != 0 {
-		t.Errorf("invalid number of indexed nodes %+v", stats)
+		t.Errorf("invalid number of indexed files %+v", stats)
 	}
 	if len(stats.Errors) != 0 {
 		t.Error("errors found while indexing")
@@ -102,6 +108,9 @@ func TestIndexWithPath(t *testing.T) {
 	}
 	if stats.ScannedFiles != 4 {
 		t.Errorf("%+v", stats)
+	}
+	if stats.ScannedSnapshots != 1 {
+		t.Errorf("invalid number of indexed snapshots %+v", stats)
 	}
 	if len(stats.Errors) != 0 {
 		t.Error("errors found while indexing")
