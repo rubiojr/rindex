@@ -21,45 +21,74 @@ import (
 	lopt "github.com/syndtr/goleveldb/leveldb/opt"
 )
 
-// DocumentBuilder is the interface custom indexers should implement
-type DocumentBuilder interface {
-	BuildDocument(string, blugeindex.BlugeIndex, *restic.Node, *repository.Repository) *bluge.Document
-}
-
 // IndexStats is returned every time an new document is indexed or when
 // the indexing process finishes.
 type IndexStats struct {
-	Mismatch         uint64
-	ScannedNodes     uint64
-	IndexedFiles     uint64
+	// Files that did not pass the filter (not indexed)
+	Mismatch uint64
+	// Number of nodes (files or directories) scanned
+	ScannedNodes uint64
+	// Number of files indexed
+	IndexedFiles uint64
+	// Number of snapshots visited for indexing
 	ScannedSnapshots uint64
-	AlreadyIndexed   uint64
-	ScannedFiles     uint64
-	DataBlobs        uint64
-	Errors           []error
-	LastScanned      string
-	LastMatch        string
+	// Number of files previously indexed
+	AlreadyIndexed uint64
+	// Number of files scanned
+	ScannedFiles uint64
+	// Errors found while scanning or indexing files
+	Errors []error
+	// Last file indexed
+	LastMatch string
 }
 
 // IndexOptions to be passed to Index
 type IndexOptions struct {
+	// The Restic repository location (RESTIC_REPOSITORY)
 	RepositoryLocation string
+	// The Restic repository password (RESTIC_PASSWORD)
 	RepositoryPassword string
-	Filter             Filter
-	BatchSize          uint
-	AppendFileMeta     bool
-	Reindex            bool
-	DocumentBuilder    DocumentBuilder
+	// The Filter decides if the file is indexed or not
+	Filter Filter
+	// Batching improves indexing speed at the cost of using
+	// some more memory. Dramatically improves indexing speed
+	// for large number of files.
+	// 0 or 1 disables batching. Defaults to 1 (no batching) if not set.
+	BatchSize uint
+	// If set to true, basic file metadata will be added to every document
+	// indexed:
+	//
+	//   repository_id: Restic's repository ID
+	//   path: the path of the file when it was backed up
+	//   hostname: the host that was backed up
+	//   mtime: file modification time when it was backed up
+	//   blobs: raw data blobs that form the file
+	//   size: file size when it was backed up
+	//
+	// If set to false, the DocumentBuilder implementing BuildDocument is fully responsible
+	// for the information to be indexed
+	AppendFileMeta bool
+	// If set to true, all the repository snapshots and files will be scanned and re-indexed.
+	Reindex bool
+	// DocumentBuilder is responsible of creating the Bluge document that will be indexed
+	DocumentBuilder DocumentBuilder
 }
 
 type Indexer struct {
-	IndexPath   string
+	// The path to the directory that will hold the index
+	IndexPath string
+	// IndexingEngine being used (Bluge is the only one supported right now)
 	IndexEngine *blugeindex.BlugeIndex
 	idCache     *leveldb.DB
 	idTmpCache  *leveldb.DB
 	snapCache   *leveldb.DB
 }
 
+// DefaultIndexOptions will:
+// * Index all the files found
+// * With batching disabled
+// * Adding basic file metadata to every file being indexed
+// * Using the default document builder
 var DefaultIndexOptions = IndexOptions{
 	Filter:          &MatchAllFilter{},
 	BatchSize:       1,
@@ -67,6 +96,8 @@ var DefaultIndexOptions = IndexOptions{
 	DocumentBuilder: FileDocumentBuilder{},
 }
 
+// New creates a new Indexer.
+// indexPath is the path to the directory that will contain the index files.
 func New(indexPath string) (Indexer, error) {
 	indexer := Indexer{}
 	if indexPath == "" {
@@ -84,6 +115,10 @@ func New(indexPath string) (Indexer, error) {
 	return indexer, nil
 }
 
+// Index will start indexing the repository.
+//
+// A channel can be passed to follow the indexing process in real time. IndexStats is sent to
+// the channel every time a new file is indexed.
 func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan IndexStats) (IndexStats, error) {
 	var err error
 
@@ -113,9 +148,6 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 	if err = repo.LoadIndex(ctx); err != nil {
 		return stats, err
 	}
-
-	idx := repo.Index()
-	stats.DataBlobs = uint64(idx.Count(restic.DataBlob))
 
 	snaps, _ := listSnapshots(ctx, repo)
 	for snap := range snaps {
@@ -213,7 +245,7 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 
 	stats.LastMatch = node.Name
 
-	doc := opts.DocumentBuilder.BuildDocument(fileID, *i.IndexEngine, node, repo)
+	doc := opts.DocumentBuilder.BuildDocument(fileID, node, repo)
 	if opts.AppendFileMeta {
 		doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue()).
 			AddField(bluge.NewTextField("repository_id", repoID).StoreValue()).

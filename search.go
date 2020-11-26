@@ -3,6 +3,8 @@ package rindex
 type SearchResultVisitor = func() bool
 type FieldVisitor = func(field string, value []byte) bool
 
+// Search searches the index and calls srVisitor for every result obtained and
+// fVisitor for every field in that search result.
 func (i *Indexer) Search(query string, fVisitor FieldVisitor, srVisitor SearchResultVisitor) (uint64, error) {
 	count := uint64(0)
 	reader, err := i.IndexEngine.OpenReader()

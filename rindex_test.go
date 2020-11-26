@@ -71,9 +71,6 @@ func TestIndexWithPath(t *testing.T) {
 	if stats.AlreadyIndexed != 1 {
 		t.Errorf("%+v", stats)
 	}
-	if stats.DataBlobs != 2 {
-		t.Errorf("%+v", stats)
-	}
 	if len(stats.Errors) != 0 {
 		t.Error("errors found while indexing")
 	}
