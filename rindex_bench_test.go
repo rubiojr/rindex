@@ -17,15 +17,13 @@ func benchIndex(batchSize uint) error {
 	os.Setenv("RESTIC_PASSWORD", "test")
 	os.RemoveAll("/tmp/rindex-tests")
 
-	idx, err := New(devIndexPath)
+	idx, err := New(devIndexPath, os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		return err
 	}
 
 	idxOpts := IndexOptions{
-		BatchSize:          batchSize,
-		RepositoryLocation: os.Getenv("RESTIC_REPOSITORY"),
-		RepositoryPassword: os.Getenv("RESTIC_PASSWORD"),
+		BatchSize: batchSize,
 	}
 	stats, err := idx.Index(context.Background(), idxOpts, nil)
 	if stats.IndexedFiles != 91247 {
