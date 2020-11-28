@@ -52,3 +52,28 @@ func TestFetch(t *testing.T) {
 		t.Error("sha256 does not match after decryption")
 	}
 }
+
+func TestFetchInvalid(t *testing.T) {
+	progress := make(chan IndexStats, 10)
+	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = idx.Index(context.Background(), DefaultIndexOptions, progress)
+	if err != nil {
+		t.Error(err)
+	}
+
+	var buf bytes.Buffer
+	writer := bufio.NewWriter(&buf)
+	err = idx.Fetch(context.Background(), "XXX", writer)
+	writer.Flush()
+	if err == nil {
+		t.Error("should have returned an error")
+	}
+
+	if err.Error() != "no blobs found for XXX" {
+		t.Error("invalid error returned")
+	}
+}

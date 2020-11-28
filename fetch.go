@@ -21,13 +21,22 @@ func (i *Indexer) Fetch(ctx context.Context, fileID string, writer io.Writer) er
 		return err
 	}
 
+	var decodeError error
 	var pblobs []restic.PackedBlob
 	i.Search(fmt.Sprintf("_id:%s", fileID), func(field string, value []byte) bool {
 		if field == "blobs" {
-			json.Unmarshal(value, &pblobs)
+			decodeError = json.Unmarshal(value, &pblobs)
 		}
 		return true
 	}, nil)
+
+	if decodeError != nil {
+		return fmt.Errorf("error unmarshalling blobs: %v", decodeError)
+	}
+
+	if len(pblobs) == 0 {
+		return errors.Errorf("no blobs found for %s", fileID)
+	}
 
 	var buf []byte
 	for _, blob := range pblobs {
