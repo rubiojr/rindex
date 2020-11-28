@@ -48,7 +48,6 @@ func loadBlob(ctx context.Context, r *repository.Repository, buf []byte, blob re
 	// load blob from pack
 	h := restic.Handle{Type: restic.PackFile, Name: blob.PackID.String()}
 
-	fmt.Println("decrypting blob ", blob.ID)
 	switch {
 	case cap(buf) < int(blob.Length):
 		buf = make([]byte, blob.Length)
