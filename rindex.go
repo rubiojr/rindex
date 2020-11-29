@@ -44,10 +44,6 @@ type IndexStats struct {
 
 // IndexOptions to be passed to Index
 type IndexOptions struct {
-	// The Restic repository location (RESTIC_REPOSITORY)
-	RepositoryLocation string
-	// The Restic repository password (RESTIC_PASSWORD)
-	RepositoryPassword string
 	// The Filter decides if the file is indexed or not
 	Filter Filter
 	// Batching improves indexing speed at the cost of using
@@ -75,6 +71,10 @@ type IndexOptions struct {
 }
 
 type Indexer struct {
+	// The Restic repository location (RESTIC_REPOSITORY)
+	RepositoryLocation string
+	// The Restic repository password (RESTIC_PASSWORD)
+	RepositoryPassword string
 	// The path to the directory that will hold the index
 	IndexPath string
 	// IndexingEngine being used (Bluge is the only one supported right now)
@@ -98,7 +98,7 @@ var DefaultIndexOptions = IndexOptions{
 
 // New creates a new Indexer.
 // indexPath is the path to the directory that will contain the index files.
-func New(indexPath string) (Indexer, error) {
+func New(indexPath string, repo, pass string) (Indexer, error) {
 	indexer := Indexer{}
 	if indexPath == "" {
 		return indexer, errors.New("index path can't be empty")
@@ -111,6 +111,8 @@ func New(indexPath string) (Indexer, error) {
 
 	indexer.IndexEngine = blugeindex.NewBlugeIndex(indexPath, 1)
 	indexer.IndexPath = indexPath
+	indexer.RepositoryLocation = repo
+	indexer.RepositoryPassword = pass
 
 	return indexer, nil
 }
@@ -138,8 +140,8 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 	}
 
 	ropts := rapi.DefaultOptions
-	ropts.Password = opts.RepositoryPassword
-	ropts.Repo = opts.RepositoryLocation
+	ropts.Password = i.RepositoryPassword
+	ropts.Repo = i.RepositoryLocation
 	repo, err := rapi.OpenRepository(ropts)
 	if err != nil {
 		return IndexStats{}, err
@@ -246,13 +248,13 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 	stats.LastMatch = node.Name
 
 	doc := opts.DocumentBuilder.BuildDocument(fileID, node, repo)
+	doc.AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content, repo.Index())).StoreValue())
 	if opts.AppendFileMeta {
 		doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue()).
 			AddField(bluge.NewTextField("repository_id", repoID).StoreValue()).
 			AddField(bluge.NewTextField("path", nodepath).StoreValue()).
 			AddField(bluge.NewTextField("hostname", host).StoreValue()).
 			AddField(bluge.NewDateTimeField("mtime", node.ModTime).StoreValue()).
-			AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content)).StoreValue()).
 			AddField(bluge.NewNumericField("size", float64(node.Size)).StoreValue()).
 			AddField(bluge.NewCompositeFieldExcluding("_all", nil))
 	}
@@ -326,8 +328,13 @@ func nodeFileID(node *restic.Node) []byte {
 	return sha[:]
 }
 
-func marshalBlobIDs(ids restic.IDs) string {
-	j, err := json.Marshal(ids)
+func marshalBlobIDs(ids restic.IDs, idx restic.MasterIndex) string {
+	pblist := []restic.PackedBlob{}
+	for _, id := range ids {
+		pb := idx.Lookup(restic.BlobHandle{ID: id, Type: restic.DataBlob})
+		pblist = append(pblist, pb...)
+	}
+	j, err := json.Marshal(pblist)
 	if err != nil {
 		panic(err)
 	}

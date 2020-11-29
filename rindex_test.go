@@ -26,14 +26,12 @@ func TestMain(m *testing.M) {
 
 func TestSetBatchSize(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx, err := New(indexPath())
+	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	idxOpts := IndexOptions{
-		BatchSize:          10,
-		RepositoryLocation: "tmp/repo",
-		RepositoryPassword: "test",
+		BatchSize: 10,
 	}
 	_, _ = idx.Index(context.Background(), idxOpts, progress)
 	if idx.IndexEngine.BatchSize != 10 {
@@ -43,14 +41,11 @@ func TestSetBatchSize(t *testing.T) {
 
 func TestIndexWithPath(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx, err := New(indexPath())
+	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	idxOpts := IndexOptions{
-		RepositoryLocation: "tmp/repo",
-		RepositoryPassword: "test",
-	}
+	idxOpts := IndexOptions{}
 
 	stats, err := idx.Index(context.Background(), idxOpts, progress)
 	if err != nil {
@@ -116,15 +111,12 @@ func TestIndexWithPath(t *testing.T) {
 
 func TestIndexWithEngine(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx, err := New(indexPath())
+	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	idx.IndexEngine = blugeindex.NewBlugeIndex("tmp/test2.idx", 10)
-	opts := IndexOptions{
-		RepositoryLocation: "tmp/repo",
-		RepositoryPassword: "test",
-	}
+	opts := IndexOptions{}
 	stats, err := idx.Index(context.Background(), opts, progress)
 	if err != nil {
 		t.Error(err)
@@ -139,7 +131,7 @@ func TestIndexWithEngine(t *testing.T) {
 
 func TestIndexWithUnbufferedProgress(t *testing.T) {
 	progress := make(chan IndexStats)
-	idx, err := New(indexPath())
+	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		t.Fatal(err)
 	}

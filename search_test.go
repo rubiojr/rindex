@@ -2,12 +2,13 @@ package rindex
 
 import (
 	"context"
+	"os"
 	"testing"
 )
 
 func TestSearch(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx, err := New(indexPath())
+	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +42,7 @@ func TestSearchAll(t *testing.T) {
 		"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 	}
 
-	idx, err := New(indexPath())
+	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		t.Fatal(err)
 	}
