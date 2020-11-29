@@ -24,7 +24,6 @@ func (i *Indexer) Fetch(ctx context.Context, fileID string, writer io.Writer) er
 	var decodeError error
 	var pblobs []restic.PackedBlob
 	_, err = i.Search(fmt.Sprintf("_id:%s", fileID), func(field string, value []byte) bool {
-		fmt.Println(field)
 		if field == "blobs" {
 			decodeError = json.Unmarshal(value, &pblobs)
 		}
