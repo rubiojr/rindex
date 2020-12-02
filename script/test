@@ -13,4 +13,4 @@ rm -rf "$BASE_PATH/tmp"
 restic init > /dev/null
 restic backup testdata > /dev/null
 
-go test . ./blugeindex
+go test -v . ./blugeindex
