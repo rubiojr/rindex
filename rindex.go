@@ -162,6 +162,34 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 	return stats, nil
 }
 
+func (i *Indexer) MissingSnapshots(ctx context.Context) ([]string, error) {
+	missing := []string{}
+	defer i.Close()
+
+	err := i.initCaches()
+	if err != nil {
+		return missing, err
+	}
+
+	ropts := rapi.DefaultOptions
+	ropts.Password = i.RepositoryPassword
+	ropts.Repo = i.RepositoryLocation
+	repo, err := rapi.OpenRepository(ropts)
+	if err != nil {
+		return missing, err
+	}
+
+	snaps, _ := listSnapshots(ctx, repo)
+	for snap := range snaps {
+		if _, err := i.snapCache.Get(snap.ID()[:], nil); err == nil {
+			continue
+		}
+		missing = append(missing, snap.ID().String())
+	}
+
+	return missing, nil
+}
+
 func (i *Indexer) initCaches() error {
 	var err error
 
