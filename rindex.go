@@ -104,11 +104,6 @@ func New(indexPath string, repo, pass string) (Indexer, error) {
 		return indexer, errors.New("index path can't be empty")
 	}
 
-	err := os.MkdirAll(indexPath, 0755)
-	if err != nil {
-		return indexer, err
-	}
-
 	indexer.IndexEngine = blugeindex.NewBlugeIndex(indexPath, 1)
 	indexer.IndexPath = indexPath
 	indexer.RepositoryLocation = repo
