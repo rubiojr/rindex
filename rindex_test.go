@@ -143,3 +143,33 @@ func TestIndexWithUnbufferedProgress(t *testing.T) {
 		t.Errorf("%+v", stats)
 	}
 }
+
+func TestMissingSnapshots(t *testing.T) {
+	progress := make(chan IndexStats, 10)
+	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	idxOpts := IndexOptions{}
+
+	missing, err := idx.MissingSnapshots(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 1 {
+		t.Error("should report a missing snapshot")
+	}
+
+	_, err = idx.Index(context.Background(), idxOpts, progress)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	missing, err = idx.MissingSnapshots(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(missing) != 0 {
+		t.Error("should not return missing snapshots")
+	}
+}

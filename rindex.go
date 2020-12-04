@@ -146,7 +146,10 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 		return stats, err
 	}
 
-	snaps, _ := listSnapshots(ctx, repo)
+	snaps, err := listSnapshots(ctx, repo)
+	if err != nil {
+		return stats, err
+	}
 	for snap := range snaps {
 		if _, err := i.snapCache.Get(snap.ID()[:], nil); err == nil && !opts.Reindex {
 			continue
@@ -158,8 +161,40 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 			stats.Errors = append(stats.Errors, err)
 		}
 	}
-	i.Close()
+	i.close()
 	return stats, nil
+}
+
+func (i *Indexer) MissingSnapshots(ctx context.Context) ([]string, error) {
+	missing := []string{}
+
+	err := i.initCaches()
+	defer i.closeCaches()
+
+	if err != nil {
+		return missing, err
+	}
+
+	ropts := rapi.DefaultOptions
+	ropts.Password = i.RepositoryPassword
+	ropts.Repo = i.RepositoryLocation
+	repo, err := rapi.OpenRepository(ropts)
+	if err != nil {
+		return missing, err
+	}
+
+	snaps, err := listSnapshots(ctx, repo)
+	if err != nil {
+		return missing, err
+	}
+	for snap := range snaps {
+		if _, err := i.snapCache.Get(snap.ID()[:], nil); err == nil {
+			continue
+		}
+		missing = append(missing, snap.ID().String())
+	}
+
+	return missing, nil
 }
 
 func (i *Indexer) initCaches() error {
@@ -273,12 +308,16 @@ func (i *Indexer) addToCaches(fileID []byte) error {
 	return i.idTmpCache.Put(fileID, []byte{}, nil)
 }
 
-func (i *Indexer) Close() {
+func (i *Indexer) close() {
 	err := i.IndexEngine.Close()
 	if err != nil {
 		panic(err)
 	}
-	err = i.idCache.Close()
+	i.closeCaches()
+}
+
+func (i *Indexer) closeCaches() {
+	err := i.idCache.Close()
 	if err != nil {
 		panic(err)
 	}
@@ -336,9 +375,9 @@ func marshalBlobIDs(ids restic.IDs, idx restic.MasterIndex) string {
 	return string(j)
 }
 
-func listSnapshots(ctx context.Context, repo *repository.Repository) (<-chan *restic.Snapshot, <-chan error) {
+func listSnapshots(ctx context.Context, repo *repository.Repository) (<-chan *restic.Snapshot, error) {
 	out := make(chan *restic.Snapshot)
-	errc := make(chan error, 1)
+	var errfound error
 	go func() {
 		defer close(out)
 
@@ -355,7 +394,7 @@ func listSnapshots(ctx context.Context, repo *repository.Repository) (<-chan *re
 		})
 
 		if err != nil {
-			errc <- err
+			errfound = err
 			return
 		}
 
@@ -368,5 +407,5 @@ func listSnapshots(ctx context.Context, repo *repository.Repository) (<-chan *re
 		}
 	}()
 
-	return out, errc
+	return out, errfound
 }
