@@ -138,6 +138,8 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 		return stats, err
 	}
 
+	defer i.close()
+
 	ropts := rapi.DefaultOptions
 	ropts.Password = i.RepositoryPassword
 	ropts.Repo = i.RepositoryLocation
@@ -150,22 +152,30 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 		return stats, err
 	}
 
-	snaps, err := listSnapshots(ctx, repo)
-	if err != nil {
-		return stats, err
-	}
-	for snap := range snaps {
-		if _, err := i.snapCache.Get(snap.ID()[:], nil); err == nil && !opts.Reindex {
-			continue
+	err = restic.ForAllSnapshots(ctx, repo, nil, func(id restic.ID, snap *restic.Snapshot, err error) error {
+		if err != nil {
+			stats.Errors = append(stats.Errors, err)
+			return err
 		}
+
+		if _, err := i.snapCache.Get(snap.ID()[:], nil); err == nil && !opts.Reindex {
+			return nil
+		}
+
 		stats.ScannedSnapshots++
 		i.walkSnapshot(ctx, repo, snap, &stats, opts, progress)
-		err := i.snapCache.Put(snap.ID()[:], []byte{}, nil)
+		err = i.snapCache.Put(snap.ID()[:], []byte{}, nil)
 		if err != nil {
 			stats.Errors = append(stats.Errors, err)
 		}
+
+		return err
+	})
+
+	if err != nil {
+		stats.Errors = append(stats.Errors, err)
 	}
-	i.close()
+
 	return stats, nil
 }
 
