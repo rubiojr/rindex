@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/blugelabs/bluge"
+	"github.com/blugelabs/bluge/analysis"
 	"github.com/rubiojr/rapi"
 	"github.com/rubiojr/rapi/repository"
 	"github.com/rubiojr/rapi/restic"
@@ -68,6 +69,8 @@ type IndexOptions struct {
 	Reindex bool
 	// DocumentBuilder is responsible of creating the Bluge document that will be indexed
 	DocumentBuilder DocumentBuilder
+
+	filenameAnalyzer *analysis.Analyzer
 }
 
 type Indexer struct {
@@ -90,10 +93,11 @@ type Indexer struct {
 // * Adding basic file metadata to every file being indexed
 // * Using the default document builder
 var DefaultIndexOptions = IndexOptions{
-	Filter:          &MatchAllFilter{},
-	BatchSize:       1,
-	AppendFileMeta:  true,
-	DocumentBuilder: FileDocumentBuilder{},
+	Filter:           &MatchAllFilter{},
+	BatchSize:        1,
+	AppendFileMeta:   true,
+	DocumentBuilder:  FileDocumentBuilder{},
+	filenameAnalyzer: blugeindex.NewFilenameAnalyzer(),
 }
 
 // New creates a new Indexer.
@@ -280,7 +284,7 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 	doc := opts.DocumentBuilder.BuildDocument(fileID, node, repo)
 	doc.AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content, repo.Index())).StoreValue())
 	if opts.AppendFileMeta {
-		doc.AddField(bluge.NewTextField("filename", string(node.Name)).StoreValue()).
+		doc.AddField(bluge.NewTextField("filename", string(node.Name)).WithAnalyzer(opts.filenameAnalyzer).StoreValue()).
 			AddField(bluge.NewTextField("repository_id", repoID).StoreValue()).
 			AddField(bluge.NewTextField("path", nodepath).StoreValue()).
 			AddField(bluge.NewTextField("hostname", host).StoreValue()).
