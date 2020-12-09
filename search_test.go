@@ -2,6 +2,7 @@ package rindex
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 )
@@ -70,6 +71,46 @@ func TestSearchAll(t *testing.T) {
 	for _, id := range idset {
 		if _, ok := found[id]; !ok {
 			t.Errorf("did not find id %s", id)
+		}
+	}
+}
+
+func TestSearchMultiplePaths(t *testing.T) {
+	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = idx.Index(context.Background(), DefaultIndexOptions, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var altPaths []string
+	visitor := func(field string, value []byte) bool {
+		if field == "alt_paths" {
+			json.Unmarshal(value, &altPaths)
+		}
+		return true
+	}
+
+	count, err := idx.Search("7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730", visitor, nil)
+	if err != nil {
+		t.Error(err)
+	}
+
+	pFound := map[string]bool{}
+	for _, path := range altPaths {
+		pFound[path] = true
+	}
+
+	if count != 1 {
+		t.Errorf("should return one result, got %d", count)
+	}
+
+	for _, p := range []string{"/testdata/bar", "/testdata/foo/dupebar"} {
+		if _, ok := pFound[p]; !ok {
+			t.Errorf("path %s not found in alt_paths", p)
 		}
 	}
 }

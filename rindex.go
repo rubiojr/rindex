@@ -259,13 +259,16 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 	}
 
 	fileIDBytes := nodeFileID(node)
+	fileID := hex.EncodeToString(fileIDBytes)
 
+	var altPaths []string
 	if !i.needsIndexing(fileIDBytes, opts.Reindex) {
 		stats.AlreadyIndexedInc()
-		return
+		altPaths = i.altPathsForNode(fileIDBytes, nodepath, stats)
+	} else {
+		stats.IndexedFilesInc()
+		altPaths = append(altPaths, nodepath)
 	}
-
-	fileID := hex.EncodeToString(fileIDBytes)
 
 	stats.LastMatch = node.Name
 
@@ -278,22 +281,41 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 			AddField(bluge.NewTextField("hostname", host).StoreValue()).
 			AddField(bluge.NewDateTimeField("mtime", node.ModTime).StoreValue()).
 			AddField(bluge.NewNumericField("size", float64(node.Size)).StoreValue()).
+			AddField(bluge.NewTextField("alt_paths", marshalAltPaths(altPaths)).StoreValue()).
 			AddField(bluge.NewCompositeFieldExcluding("_all", nil))
 	}
 	err := i.IndexEngine.Index(doc)
 	if err != nil {
 		stats.ErrorsAdd(err)
 	} else {
-		stats.IndexedFilesInc()
-		err = i.addToCaches(fileIDBytes)
+		err = i.addToCaches(fileIDBytes, altPaths)
 		if err != nil {
 			stats.ErrorsAdd(err)
 		}
 	}
 }
 
-func (i *Indexer) addToCaches(fileID []byte) error {
-	err := i.idCache.Put(fileID, []byte{}, nil)
+// fetch alternative paths we already added for this node
+func (i *Indexer) altPathsForNode(fileIDBytes []byte, nodepath string, stats *IndexStats) []string {
+	var altPaths []string
+	val, err := i.idCache.Get(fileIDBytes, nil)
+	if err == nil {
+		err := json.Unmarshal(val, &altPaths)
+		if err != nil {
+			stats.ErrorsAdd(fmt.Errorf("error unmarshalling alt_paths for %s: %v", hex.EncodeToString(fileIDBytes), err))
+		} else {
+			altPaths = append(altPaths, nodepath)
+		}
+	} else {
+		stats.ErrorsAdd(fmt.Errorf("error unmarshalling alt_paths for %s: %v", hex.EncodeToString(fileIDBytes), err))
+		stats.ErrorsAdd(err)
+	}
+
+	return altPaths
+}
+
+func (i *Indexer) addToCaches(fileID []byte, paths []string) error {
+	err := i.idCache.Put(fileID, []byte(marshalAltPaths(paths)), nil)
 	if err != nil {
 		return err
 	}
@@ -352,6 +374,24 @@ func nodeFileID(node *restic.Node) []byte {
 	}
 	sha := sha256.Sum256(bb)
 	return sha[:]
+}
+
+func marshalAltPaths(paths []string) string {
+	altPaths := map[string]bool{}
+	pa := []string{}
+	for _, path := range paths {
+		if _, ok := altPaths[path]; !ok {
+			pa = append(pa, path)
+			altPaths[path] = true
+		}
+	}
+
+	j, err := json.Marshal(pa)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(j)
 }
 
 func marshalBlobIDs(ids restic.IDs, idx restic.MasterIndex) string {
