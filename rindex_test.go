@@ -88,10 +88,41 @@ func TestIndexWithPath(t *testing.T) {
 	if len(stats.Errors) != 0 {
 		t.Error("errors found while indexing")
 	}
+}
+
+func TestReindex(t *testing.T) {
+	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	idxOpts := IndexOptions{}
+
+	stats, err := idx.Index(context.Background(), idxOpts, nil)
+	if err != nil {
+		t.Error(err)
+	}
+	if stats.IndexedFiles != 3 {
+		t.Errorf("%+v", stats)
+	}
+	if stats.ScannedSnapshots != 1 {
+		t.Errorf("%+v", stats)
+	}
+	if stats.ScannedNodes != 6 {
+		t.Errorf("%+v", stats)
+	}
+	if stats.ScannedFiles != 4 {
+		t.Errorf("%+v", stats)
+	}
+	if stats.AlreadyIndexed != 1 {
+		t.Errorf("%+v", stats)
+	}
+	if len(stats.Errors) != 0 {
+		t.Error("errors found while indexing")
+	}
 
 	// reindex enabled
 	idxOpts.Reindex = true
-	stats, err = idx.Index(context.Background(), idxOpts, progress)
+	stats, err = idx.Index(context.Background(), idxOpts, nil)
 	if err != nil {
 		t.Error(err)
 	}

@@ -22,27 +22,6 @@ import (
 	lopt "github.com/syndtr/goleveldb/leveldb/opt"
 )
 
-// IndexStats is returned every time an new document is indexed or when
-// the indexing process finishes.
-type IndexStats struct {
-	// Files that did not pass the filter (not indexed)
-	Mismatch uint64
-	// Number of nodes (files or directories) scanned
-	ScannedNodes uint64
-	// Number of files indexed
-	IndexedFiles uint64
-	// Number of snapshots visited for indexing
-	ScannedSnapshots uint64
-	// Number of files previously indexed
-	AlreadyIndexed uint64
-	// Number of files scanned
-	ScannedFiles uint64
-	// Errors found while scanning or indexing files
-	Errors []error
-	// Last file indexed
-	LastMatch string
-}
-
 // IndexOptions to be passed to Index
 type IndexOptions struct {
 	// The Filter decides if the file is indexed or not
@@ -131,7 +110,7 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 	}
 
 	i.IndexEngine.SetBatchSize(opts.BatchSize)
-	stats := IndexStats{Errors: []error{}}
+	stats := NewStats()
 
 	err = i.initCaches()
 	if err != nil {
@@ -150,21 +129,30 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 		return stats, err
 	}
 
-	snaps, err := listSnapshots(ctx, repo)
-	if err != nil {
-		return stats, err
-	}
-	for snap := range snaps {
-		if _, err := i.snapCache.Get(snap.ID()[:], nil); err == nil && !opts.Reindex {
-			continue
-		}
-		stats.ScannedSnapshots++
-		i.walkSnapshot(ctx, repo, snap, &stats, opts, progress)
-		err := i.snapCache.Put(snap.ID()[:], []byte{}, nil)
+	err = restic.ForAllSnapshots(ctx, repo, nil, func(id restic.ID, snap *restic.Snapshot, err error) error {
 		if err != nil {
-			stats.Errors = append(stats.Errors, err)
+			stats.ErrorsAdd(err)
+			return err
 		}
+
+		if _, err := i.snapCache.Get(snap.ID()[:], nil); err == nil && !opts.Reindex {
+			return nil
+		}
+
+		stats.ScannedSnapshotsInc()
+		i.walkSnapshot(ctx, repo, snap, &stats, opts, progress)
+		err = i.snapCache.Put(snap.ID()[:], []byte{}, nil)
+		if err != nil {
+			stats.ErrorsAdd(err)
+		}
+
+		return err
+	})
+
+	if err != nil {
+		stats.ErrorsAdd(err)
 	}
+
 	i.close()
 	return stats, nil
 }
@@ -257,23 +245,23 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 		return
 	}
 
-	stats.ScannedNodes++
+	stats.ScannedNodesInc()
 
 	if node.Type != "file" {
 		return
 	}
 
-	stats.ScannedFiles++
+	stats.ScannedFilesInc()
 
 	if !opts.Filter.ShouldIndex(nodepath) {
-		stats.Mismatch++
+		stats.MismatchInc()
 		return
 	}
 
 	fileIDBytes := nodeFileID(node)
 
 	if !i.needsIndexing(fileIDBytes, opts.Reindex) {
-		stats.AlreadyIndexed++
+		stats.AlreadyIndexedInc()
 		return
 	}
 
@@ -294,12 +282,12 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 	}
 	err := i.IndexEngine.Index(doc)
 	if err != nil {
-		stats.Errors = append(stats.Errors, err)
+		stats.ErrorsAdd(err)
 	} else {
-		stats.IndexedFiles++
+		stats.IndexedFilesInc()
 		err = i.addToCaches(fileIDBytes)
 		if err != nil {
-			stats.Errors = append(stats.Errors, err)
+			stats.ErrorsAdd(err)
 		}
 	}
 }

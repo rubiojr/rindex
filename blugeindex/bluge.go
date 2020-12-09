@@ -3,6 +3,7 @@ package blugeindex
 import (
 	"context"
 	"os"
+	"sync"
 
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/index"
@@ -19,13 +20,14 @@ type BlugeIndex struct {
 	docsBatched  int64
 	batch        *index.Batch
 	firstTime    bool
+	m            *sync.Mutex
 }
 
 const defaultBatchSize = 1000
 
 func NewBlugeIndex(indexPath string, batchSize uint) *BlugeIndex {
 	blugeConf := bluge.DefaultConfig(indexPath)
-	idx := &BlugeIndex{conf: &blugeConf, IndexPath: indexPath, writerClosed: true, BatchSize: batchSize}
+	idx := &BlugeIndex{conf: &blugeConf, IndexPath: indexPath, writerClosed: true, BatchSize: batchSize, m: &sync.Mutex{}}
 	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
 		// first time we're indexing. We'll use Insert intead of Update
 		// to add documents, as it seems to be ~10% faster in bluge 0.1.3
@@ -74,6 +76,9 @@ func (i *BlugeIndex) IsDirty() bool {
 }
 
 func (i *BlugeIndex) Index(doc *bluge.Document) error {
+	i.m.Lock()
+	defer i.m.Unlock()
+
 	var err error
 	if i.BatchSize > 1 {
 		if i.firstTime {
