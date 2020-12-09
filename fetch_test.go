@@ -24,7 +24,7 @@ func TestFetch(t *testing.T) {
 	}
 
 	fid := ""
-	idx.Search("filename:bar",
+	idx.Search("7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730",
 		func(field string, value []byte) bool {
 			if field == "_id" {
 				fid = string(value)
