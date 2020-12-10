@@ -20,6 +20,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/filter"
 	lopt "github.com/syndtr/goleveldb/leveldb/opt"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 // IndexOptions to be passed to Index
@@ -273,7 +274,7 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 	stats.LastMatch = node.Name
 
 	doc := opts.DocumentBuilder.BuildDocument(fileID, node, repo)
-	doc.AddField(bluge.NewTextField("blobs", marshalBlobIDs(node.Content, repo.Index())).StoreValue())
+	doc.AddField(bluge.NewStoredOnlyField("blobs", marshalBlobIDs(node.Content, repo.Index())))
 	if opts.AppendFileMeta {
 		doc.AddField(bluge.NewTextField("filename", string(node.Name)).WithAnalyzer(opts.filenameAnalyzer).StoreValue()).
 			AddField(bluge.NewTextField("repository_id", repoID).StoreValue()).
@@ -394,17 +395,17 @@ func marshalAltPaths(paths []string) string {
 	return string(j)
 }
 
-func marshalBlobIDs(ids restic.IDs, idx restic.MasterIndex) string {
+func marshalBlobIDs(ids restic.IDs, idx restic.MasterIndex) []byte {
 	pblist := []restic.PackedBlob{}
 	for _, id := range ids {
 		pb := idx.Lookup(restic.BlobHandle{ID: id, Type: restic.DataBlob})
 		pblist = append(pblist, pb...)
 	}
-	j, err := json.Marshal(pblist)
+	j, err := msgpack.Marshal(pblist)
 	if err != nil {
 		panic(err)
 	}
-	return string(j)
+	return j
 }
 
 func listSnapshots(ctx context.Context, repo *repository.Repository) (<-chan *restic.Snapshot, error) {

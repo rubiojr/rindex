@@ -8,4 +8,5 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/rubiojr/rapi v0.0.0-20201208211132-2b65f0269862
 	github.com/syndtr/goleveldb v1.0.0
+	github.com/vmihailenco/msgpack/v5 v5.1.0
 )

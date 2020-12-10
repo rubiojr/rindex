@@ -2,7 +2,6 @@ package rindex
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/rubiojr/rapi"
 	"github.com/rubiojr/rapi/repository"
 	"github.com/rubiojr/rapi/restic"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 func (i *Indexer) Fetch(ctx context.Context, fileID string, writer io.Writer) error {
@@ -25,7 +25,7 @@ func (i *Indexer) Fetch(ctx context.Context, fileID string, writer io.Writer) er
 	var pblobs []restic.PackedBlob
 	_, err = i.Search(fmt.Sprintf("_id:%s", fileID), func(field string, value []byte) bool {
 		if field == "blobs" {
-			decodeError = json.Unmarshal(value, &pblobs)
+			decodeError = msgpack.Unmarshal(value, &pblobs)
 		}
 		return true
 	}, nil)
