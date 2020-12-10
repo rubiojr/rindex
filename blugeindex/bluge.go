@@ -69,9 +69,6 @@ func (i *BlugeIndex) IsDirty() bool {
 }
 
 func (i *BlugeIndex) Index(doc *bluge.Document) error {
-	i.m.Lock()
-	defer i.m.Unlock()
-
 	var err error
 	if i.BatchSize > 1 {
 		i.batch.Update(doc.ID(), doc)
@@ -86,6 +83,7 @@ func (i *BlugeIndex) Index(doc *bluge.Document) error {
 		}
 		err = writer.Update(doc.ID(), doc)
 	}
+
 	return err
 }
 
