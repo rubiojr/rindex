@@ -18,7 +18,7 @@ import (
 	"github.com/rubiojr/rapi/walker"
 	"github.com/rubiojr/rindex/blugeindex"
 	"github.com/syndtr/goleveldb/leveldb"
-	"github.com/syndtr/goleveldb/leveldb/filter"
+	"github.com/syndtr/goleveldb/leveldb/opt"
 	lopt "github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -202,8 +202,8 @@ func (i *Indexer) initCaches() error {
 	os.MkdirAll(cacheDir, 0755)
 
 	o := &lopt.Options{
-		Filter: filter.NewBloomFilter(10),
-		NoSync: true,
+		NoSync:      true,
+		Compression: opt.NoCompression,
 	}
 
 	i.idCache, err = leveldb.OpenFile(idCache, o)
