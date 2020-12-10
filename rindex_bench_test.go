@@ -40,7 +40,7 @@ func BenchmarkIndex(b *testing.B) {
 }
 
 func BenchmarkIndexBatch100(b *testing.B) {
-	err := benchIndex(1000)
+	err := benchIndex(100)
 	if err != nil {
 		b.Error(err)
 	}
