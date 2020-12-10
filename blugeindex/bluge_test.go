@@ -1,13 +1,17 @@
 package blugeindex
 
 import (
+	"os"
 	"testing"
 
 	"github.com/blugelabs/bluge"
+	"github.com/rubiojr/rindex/internal/testutil"
 )
 
 func TestBlugeIndex(t *testing.T) {
-	i := NewBlugeIndex("tmp/test.idx", 0)
+	os.MkdirAll("tmp", 0755)
+
+	i := NewBlugeIndex(testutil.IndexPath(), 0)
 	defer i.Close()
 
 	doc := bluge.NewDocument("1").
@@ -35,7 +39,7 @@ func TestBlugeIndex(t *testing.T) {
 }
 
 func TestBatchedWrites(t *testing.T) {
-	i := NewBlugeIndex("tmp/testbatched.idx", 3)
+	i := NewBlugeIndex(testutil.IndexPath(), 3)
 	defer i.Close()
 
 	doc := bluge.NewDocument("1").
@@ -75,7 +79,7 @@ func TestBatchedWrites(t *testing.T) {
 }
 
 func TestBlugeSearch(t *testing.T) {
-	i := NewBlugeIndex("tmp/testsearch.idx", 0)
+	i := NewBlugeIndex(testutil.IndexPath(), 0)
 	doc := bluge.NewDocument("1").
 		AddField(bluge.NewTextField("filename", "test").StoreValue().HighlightMatches()).
 		AddField(bluge.NewCompositeFieldExcluding("_all", nil))
@@ -107,7 +111,7 @@ func TestBlugeSearch(t *testing.T) {
 }
 
 func TestSearchWithQuery(t *testing.T) {
-	i := NewBlugeIndex("tmp/searchwithquery.idx", 0)
+	i := NewBlugeIndex(testutil.IndexPath(), 0)
 	doc := bluge.NewDocument("1").
 		AddField(bluge.NewTextField("filename", "test").StoreValue().HighlightMatches())
 	err := i.Index(doc)

@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"os"
 	"testing"
+
+	"github.com/rubiojr/rindex/internal/testutil"
 )
 
 func TestSearch(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +45,7 @@ func TestSearchAll(t *testing.T) {
 		"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 	}
 
-	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,14 +78,17 @@ func TestSearchAll(t *testing.T) {
 }
 
 func TestSearchMultiplePaths(t *testing.T) {
-	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), testutil.REPO_PATH, testutil.REPO_PASS)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, err = idx.Index(context.Background(), DefaultIndexOptions, nil)
+	stats, err := idx.Index(context.Background(), DefaultIndexOptions, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if stats.IndexedFiles == 0 {
+		t.Fatal("should have indexed something")
 	}
 
 	var altPaths []string
@@ -94,18 +99,18 @@ func TestSearchMultiplePaths(t *testing.T) {
 		return true
 	}
 
-	count, err := idx.Search("7d865e959b2466918c9863afca942d0fb89d7c9ac0c99bafc3749504ded97730", visitor, nil)
+	count, err := idx.Search("dupebar", visitor, nil)
 	if err != nil {
 		t.Error(err)
+	}
+
+	if count != 1 {
+		t.Fatalf("should return one result, got %d", count)
 	}
 
 	pFound := map[string]bool{}
 	for _, path := range altPaths {
 		pFound[path] = true
-	}
-
-	if count != 1 {
-		t.Errorf("should return one result, got %d", count)
 	}
 
 	for _, p := range []string{"/testdata/bar", "/testdata/foo/dupebar"} {

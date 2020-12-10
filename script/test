@@ -4,14 +4,4 @@ set -e
 SCRIPT=$(readlink -f "$0")
 BASE_PATH="$(dirname "$SCRIPT")/.."
 
-export RESTIC_REPOSITORY="$BASE_PATH/tmp/repo"
-export RESTIC_PASSWORD=test
-
-rm -rf "$RESTIC_REPOSITORY"
-rm -rf "$BASE_PATH/blugeindex/tmp"
-rm -rf "$BASE_PATH/tmp"
-
-restic init > /dev/null
-restic backup testdata > /dev/null
-
 go test -v . ./blugeindex

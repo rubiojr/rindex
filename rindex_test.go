@@ -2,31 +2,21 @@ package rindex
 
 import (
 	"context"
-	"fmt"
-	"math/rand"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/rubiojr/rindex/blugeindex"
+	"github.com/rubiojr/rindex/internal/testutil"
 )
 
-var seededRand *rand.Rand = rand.New(
-	rand.NewSource(time.Now().UnixNano()))
-
-func indexPath() string {
-	return fmt.Sprintf("tmp/%d/test.idx", rand.Intn(100000))
-}
-
 func TestMain(m *testing.M) {
-	os.Setenv("RESTIC_REPOSITORY", "tmp/repo")
-	os.Setenv("RESTIC_PASSWORD", "test")
+	testutil.SetupRepo()
 	os.Exit(m.Run())
 }
 
 func TestSetBatchSize(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +31,7 @@ func TestSetBatchSize(t *testing.T) {
 
 func TestIndexWithPath(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +81,7 @@ func TestIndexWithPath(t *testing.T) {
 }
 
 func TestReindex(t *testing.T) {
-	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +132,7 @@ func TestReindex(t *testing.T) {
 
 func TestIndexWithEngine(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,7 +152,7 @@ func TestIndexWithEngine(t *testing.T) {
 
 func TestIndexWithUnbufferedProgress(t *testing.T) {
 	progress := make(chan IndexStats)
-	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +167,7 @@ func TestIndexWithUnbufferedProgress(t *testing.T) {
 
 func TestMissingSnapshots(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx, err := New(indexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		t.Fatal(err)
 	}
