@@ -77,7 +77,7 @@ func (i *BlugeIndex) Index(doc *bluge.Document) error {
 		i.batch.Update(doc.ID(), doc)
 		i.docsBatched++
 		if i.docsBatched >= int64(i.BatchSize) {
-			err = i.writeBatch()
+			err = i.Close()
 		}
 	} else {
 		writer, err := i.Writer()
