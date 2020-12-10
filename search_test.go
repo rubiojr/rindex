@@ -25,7 +25,7 @@ func TestSearch(t *testing.T) {
 		t.Error(err)
 	}
 	if count != 1 {
-		t.Errorf("should return two results, got %d", count)
+		t.Errorf("should return one results, got %d", count)
 	}
 
 	count, err = idx.Search("_id:320b5d12843eb4a96a283a1df0a011f532dd00c921913f9e64ff25477ba1af13", nil, nil)
@@ -67,7 +67,7 @@ func TestSearchAll(t *testing.T) {
 		t.Error(err)
 	}
 	if count != 3 {
-		t.Errorf("should return two results, got %d", count)
+		t.Errorf("should return tree results, got %d", count)
 	}
 
 	for _, id := range idset {
