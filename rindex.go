@@ -324,10 +324,6 @@ func (i *Indexer) addToCaches(fileID []byte, paths []string) error {
 }
 
 func (i *Indexer) close() {
-	err := i.IndexEngine.Close()
-	if err != nil {
-		panic(err)
-	}
 	i.closeCaches()
 }
 
