@@ -1,7 +1,6 @@
 package blugeindex
 
 import (
-	"fmt"
 	"os"
 	"testing"
 
@@ -57,7 +56,6 @@ func TestBatchedWrites(t *testing.T) {
 		t.Errorf("should have two documents in the index, found %d. %v", count, err)
 	}
 
-	fmt.Println("bar")
 	doc3 := bluge.NewDocument("3").
 		AddField(bluge.NewTextField("filename", "test3").StoreValue().HighlightMatches())
 	i.Index(doc3)

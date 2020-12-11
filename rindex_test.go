@@ -9,6 +9,9 @@ import (
 	"github.com/rubiojr/rindex/internal/testutil"
 )
 
+const FILES_TO_INDEX = 3
+const SCANNED_FILES = 4
+
 func TestMain(m *testing.M) {
 	testutil.SetupRepo()
 	os.Exit(m.Run())
@@ -41,7 +44,7 @@ func TestIndexWithPath(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if stats.IndexedFiles != 3 {
+	if stats.IndexedFiles != FILES_TO_INDEX {
 		t.Errorf("%+v", stats)
 	}
 	if stats.ScannedSnapshots != 1 {
@@ -50,14 +53,14 @@ func TestIndexWithPath(t *testing.T) {
 	if stats.ScannedNodes != 6 {
 		t.Errorf("%+v", stats)
 	}
-	if stats.ScannedFiles != 4 {
+	if stats.ScannedFiles != SCANNED_FILES {
 		t.Errorf("%+v", stats)
 	}
-	if stats.AlreadyIndexed != 1 {
+	if stats.AlreadyIndexed != 0 {
 		t.Errorf("%+v", stats)
 	}
 	if len(stats.Errors) != 0 {
-		t.Error("errors found while indexing")
+		t.Errorf("errors found while indexing: %+v", stats.Errors)
 	}
 
 	// reindex not enabled
@@ -91,7 +94,7 @@ func TestReindex(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if stats.IndexedFiles != 3 {
+	if stats.IndexedFiles != FILES_TO_INDEX {
 		t.Errorf("%+v", stats)
 	}
 	if stats.ScannedSnapshots != 1 {
@@ -100,10 +103,10 @@ func TestReindex(t *testing.T) {
 	if stats.ScannedNodes != 6 {
 		t.Errorf("%+v", stats)
 	}
-	if stats.ScannedFiles != 4 {
+	if stats.ScannedFiles != SCANNED_FILES {
 		t.Errorf("%+v", stats)
 	}
-	if stats.AlreadyIndexed != 1 {
+	if stats.AlreadyIndexed != 0 {
 		t.Errorf("%+v", stats)
 	}
 	if len(stats.Errors) != 0 {
@@ -116,10 +119,10 @@ func TestReindex(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if stats.IndexedFiles != 3 {
+	if stats.IndexedFiles != 0 {
 		t.Errorf("invalid number of indexed files %+v", stats)
 	}
-	if stats.ScannedFiles != 4 {
+	if stats.ScannedFiles != SCANNED_FILES {
 		t.Errorf("%+v", stats)
 	}
 	if stats.ScannedSnapshots != 1 {
@@ -142,7 +145,7 @@ func TestIndexWithEngine(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if stats.IndexedFiles != 3 {
+	if stats.IndexedFiles != FILES_TO_INDEX {
 		t.Errorf("%+v", stats)
 	}
 	if len(stats.Errors) != 0 {
@@ -160,7 +163,7 @@ func TestIndexWithUnbufferedProgress(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if stats.IndexedFiles != 3 {
+	if stats.IndexedFiles != FILES_TO_INDEX {
 		t.Errorf("%+v", stats)
 	}
 }

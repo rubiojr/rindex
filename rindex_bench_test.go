@@ -2,7 +2,7 @@ package rindex
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,7 +27,7 @@ func benchIndex(batchSize uint) error {
 	}
 	stats, err := idx.Index(context.Background(), idxOpts, nil)
 	if stats.IndexedFiles != 91247 {
-		err = errors.New("number of indexed nodes does not match")
+		err = fmt.Errorf("number of indexed nodes does not match: %d", stats.IndexedFiles)
 	}
 	return err
 }

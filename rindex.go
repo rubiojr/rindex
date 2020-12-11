@@ -63,7 +63,6 @@ type Indexer struct {
 	// IndexingEngine being used (Bluge is the only one supported right now)
 	IndexEngine *blugeindex.BlugeIndex
 	idCache     *leveldb.DB
-	idTmpCache  *leveldb.DB
 	snapCache   *leveldb.DB
 }
 
@@ -196,7 +195,6 @@ func (i *Indexer) initCaches() error {
 	indexDir := filepath.Dir(i.IndexPath)
 	cacheDir := filepath.Join(indexDir, "cache")
 	idCache := filepath.Join(cacheDir, "id.cache")
-	idTmpCache := filepath.Join(cacheDir, "idtmp.cache")
 	snapCache := filepath.Join(cacheDir, "snap.cache")
 
 	os.MkdirAll(cacheDir, 0755)
@@ -212,33 +210,8 @@ func (i *Indexer) initCaches() error {
 	}
 
 	i.snapCache, err = leveldb.OpenFile(snapCache, o)
-	if err != nil {
-		return err
-	}
 
-	err = os.RemoveAll(idTmpCache)
-	if err != nil {
-		return err
-	}
-
-	i.idTmpCache, err = leveldb.OpenFile(idTmpCache, o)
 	return err
-}
-
-func (i *Indexer) needsIndexing(fileID []byte, reindex bool) bool {
-	var err error
-	// we've visited this node already
-	// This prevents re-indexing duplicated files
-	if _, err = i.idTmpCache.Get(fileID, nil); err == nil {
-		return false
-	}
-
-	// node not visited this run but maybe was indexed previously
-	if _, err = i.idCache.Get(fileID, nil); err == nil && !reindex {
-		return false
-	}
-
-	return true
 }
 
 func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts IndexOptions, node *restic.Node, nodepath string, host string, stats *IndexStats) {
@@ -259,18 +232,20 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 		return
 	}
 
-	fileIDBytes := nodeFileID(node)
-	fileID := hex.EncodeToString(fileIDBytes)
+	fileID := hex.EncodeToString(nodeFileID(node))
 
-	var altPaths []string
-	if !i.needsIndexing(fileIDBytes, opts.Reindex) {
-		stats.AlreadyIndexedInc()
-		altPaths = i.altPathsForNode(fileIDBytes, nodepath, stats)
-	} else {
-		stats.IndexedFilesInc()
-		altPaths = append(altPaths, nodepath)
+	altPaths := i.altPathsForNode(fileID, stats)
+	for _, p := range altPaths {
+		if p == nodepath && !opts.Reindex {
+			stats.AlreadyIndexedInc()
+			return
+		}
 	}
+	altPaths = append(altPaths, nodepath)
 
+	if dupe, _ := i.idCache.Has([]byte(fileID), nil); !dupe {
+		stats.IndexedFilesInc()
+	}
 	stats.LastMatch = node.Name
 
 	doc := opts.DocumentBuilder.BuildDocument(fileID, node, repo)
@@ -289,7 +264,7 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 	if err != nil {
 		stats.ErrorsAdd(err)
 	} else {
-		err = i.addToCaches(fileIDBytes, altPaths)
+		err = i.addToCaches(fileID, altPaths)
 		if err != nil {
 			stats.ErrorsAdd(err)
 		}
@@ -297,30 +272,26 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 }
 
 // fetch alternative paths we already added for this node
-func (i *Indexer) altPathsForNode(fileIDBytes []byte, nodepath string, stats *IndexStats) []string {
+func (i *Indexer) altPathsForNode(fileID string, stats *IndexStats) []string {
 	var altPaths []string
-	val, err := i.idCache.Get(fileIDBytes, nil)
+	val, err := i.idCache.Get([]byte(fileID), nil)
 	if err == nil {
 		err := json.Unmarshal(val, &altPaths)
 		if err != nil {
-			stats.ErrorsAdd(fmt.Errorf("error unmarshalling alt_paths for %s: %v", hex.EncodeToString(fileIDBytes), err))
-		} else {
-			altPaths = append(altPaths, nodepath)
+			stats.ErrorsAdd(fmt.Errorf("error unmarshalling alt_paths for %s: %v", fileID, err))
 		}
 	} else {
-		stats.ErrorsAdd(fmt.Errorf("error unmarshalling alt_paths for %s: %v", hex.EncodeToString(fileIDBytes), err))
-		stats.ErrorsAdd(err)
+		if err != leveldb.ErrNotFound {
+			stats.ErrorsAdd(fmt.Errorf("error retrieving %s from cache: %v", fileID, err))
+		}
 	}
 
 	return altPaths
 }
 
-func (i *Indexer) addToCaches(fileID []byte, paths []string) error {
-	err := i.idCache.Put(fileID, []byte(marshalAltPaths(paths)), nil)
-	if err != nil {
-		return err
-	}
-	return i.idTmpCache.Put(fileID, []byte{}, nil)
+func (i *Indexer) addToCaches(fileID string, paths []string) error {
+	err := i.idCache.Put([]byte(fileID), []byte(marshalAltPaths(paths)), nil)
+	return err
 }
 
 func (i *Indexer) close() {
@@ -329,10 +300,6 @@ func (i *Indexer) close() {
 
 func (i *Indexer) closeCaches() {
 	err := i.idCache.Close()
-	if err != nil {
-		panic(err)
-	}
-	err = i.idTmpCache.Close()
 	if err != nil {
 		panic(err)
 	}
