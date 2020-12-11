@@ -2,6 +2,7 @@ package blugeindex
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/blugelabs/bluge"
@@ -11,114 +12,96 @@ import (
 )
 
 type BlugeIndex struct {
-	IndexPath    string
-	BatchSize    uint
-	conf         *bluge.Config
-	writer       *bluge.Writer
-	writerClosed bool
-	docsBatched  int64
-	batch        *index.Batch
-	m            *sync.Mutex
+	IndexPath   string
+	BatchSize   uint
+	conf        *bluge.Config
+	docsBatched int64
+	batch       *index.Batch
+	queue       chan *bluge.Document
+	done        chan bool
+	indexed     chan *IndexedDocument
+	wg          *sync.WaitGroup
+	closed      bool
+	reader      *bluge.Reader
+	writer      *bluge.Writer
+	m           sync.Mutex
 }
 
-const defaultBatchSize = 1000
+type IndexedDocument struct {
+	Document *bluge.Document
+	Error    error
+}
 
 func NewBlugeIndex(indexPath string, batchSize uint) *BlugeIndex {
+	var err error
 	blugeConf := bluge.DefaultConfig(indexPath)
-	idx := &BlugeIndex{conf: &blugeConf, IndexPath: indexPath, writerClosed: true, BatchSize: batchSize, m: &sync.Mutex{}}
-	if batchSize > 1 {
-		idx.batch = bluge.NewBatch()
+	idx := &BlugeIndex{conf: &blugeConf, IndexPath: indexPath, BatchSize: batchSize}
+	idx.batch = bluge.NewBatch()
+	idx.queue = make(chan *bluge.Document)
+	idx.done = make(chan bool)
+	idx.wg = &sync.WaitGroup{}
+	idx.indexed = make(chan *IndexedDocument)
+	idx.closed = false
+	idx.m = sync.Mutex{}
+
+	idx.writer, err = bluge.OpenWriter(blugeConf)
+	if err != nil {
+		panic(err)
 	}
+	idx.reader, err = idx.writer.Reader()
+	if err != nil {
+		panic(err)
+	}
+
+	go func() {
+		for {
+			select {
+			case doc := <-idx.queue:
+				err := idx.writeDoc(doc)
+				idx.indexed <- &IndexedDocument{Document: doc, Error: err}
+				idx.wg.Done()
+			case <-idx.done:
+				idx.closed = true
+				return
+			}
+		}
+	}()
+
 	return idx
 }
 
-func (i *BlugeIndex) Writer() (*bluge.Writer, error) {
-	var err error
-	if i.writerClosed {
-		i.writer, err = bluge.OpenWriter(*i.conf)
-		if err == nil {
-			i.writerClosed = false
-		}
-	}
-	return i.writer, err
-}
-
 func (i *BlugeIndex) SetBatchSize(size uint) {
-	if size > 1 {
-		i.batch = bluge.NewBatch()
-	} else {
-		i.batch = nil
-	}
+	i.m.Lock()
+	defer i.m.Unlock()
+
 	i.BatchSize = size
 }
 
-func (i *BlugeIndex) Reader() (*bluge.Reader, error) {
-	writer, err := i.Writer()
-	if err != nil {
-		return nil, err
-	}
-	return writer.Reader()
-}
-
-func (i *BlugeIndex) OpenReader() (*bluge.Reader, error) {
-	return bluge.OpenReader(*i.conf)
-}
-
-func (i *BlugeIndex) IsDirty() bool {
-	return i.docsBatched > 0
-}
-
 func (i *BlugeIndex) Index(doc *bluge.Document) error {
-	var err error
-	if i.BatchSize > 1 {
-		i.batch.Update(doc.ID(), doc)
-		i.docsBatched++
-		if i.docsBatched >= int64(i.BatchSize) {
-			err = i.Close()
-		}
-	} else {
-		writer, err := i.Writer()
-		if err != nil {
-			return err
-		}
-		err = writer.Update(doc.ID(), doc)
+	if i.closed {
+		return errors.New("index closed")
 	}
 
-	return err
-}
+	i.wg.Add(1)
+	i.queue <- doc
 
-func (i *BlugeIndex) Close() error {
-	var err error
-	if i.BatchSize > 1 {
-		err = i.writeBatch()
-		if err != nil {
-			return err
-		}
+	for doc := range i.indexed {
+		return doc.Error
 	}
 
-	if !i.writerClosed {
-		err = i.writer.Close()
-		i.writerClosed = true
-	}
-	return err
+	return nil
 }
 
 func (i *BlugeIndex) Count() (uint64, error) {
-	reader, err := i.Reader()
-	if err != nil {
-		return 0, err
-	}
-	defer reader.Close()
-
-	query := bluge.NewMatchAllQuery()
-	request := bluge.NewAllMatches(query)
-
-	iter, err := reader.Search(context.Background(), request)
+	iter, err := i.Search("*")
 	if err != nil {
 		return 0, err
 	}
 
 	match, err := iter.Next()
+	if err != nil {
+		panic(err)
+	}
 	count := uint64(0)
 	for err == nil && match != nil {
 		count++
@@ -128,27 +111,7 @@ func (i *BlugeIndex) Count() (uint64, error) {
 	return count, nil
 }
 
-func (i *BlugeIndex) Search(q string, field string) (search.DocumentMatchIterator, error) {
-	reader, err := i.Reader()
-	if err != nil {
-		return nil, err
-	}
-	defer reader.Close()
-	return i.SearchWithReader(q, field, reader)
-}
-
-// Warning: search queries with a large number of arguments can eat all your memory
-// when using globbing
-func (i *BlugeIndex) SearchWithQuery(q string) (search.DocumentMatchIterator, error) {
-	reader, err := i.Reader()
-	if err != nil {
-		return nil, err
-	}
-	defer reader.Close()
-	return i.SearchWithReaderAndQuery(q, reader)
-}
-
-func (i *BlugeIndex) SearchWithReaderAndQuery(q string, reader *bluge.Reader) (search.DocumentMatchIterator, error) {
+func (i *BlugeIndex) Search(q string) (search.DocumentMatchIterator, error) {
 	if q == "*" {
 		q = "_id:*"
 	}
@@ -160,33 +123,63 @@ func (i *BlugeIndex) SearchWithReaderAndQuery(q string, reader *bluge.Reader) (s
 
 	request := bluge.NewAllMatches(query)
 
+	reader, err := i.openReader()
+	if err != nil {
+		return nil, err
+	}
+
 	return reader.Search(context.Background(), request)
 }
 
-func (i *BlugeIndex) SearchWithReader(q string, field string, reader *bluge.Reader) (search.DocumentMatchIterator, error) {
-	query := bluge.NewMatchQuery(q)
-	if field != "" {
-		query = query.SetField(field)
-	}
-	request := bluge.NewTopNSearch(100, query)
-	return reader.Search(context.Background(), request)
+func (idx *BlugeIndex) Close() {
+	idx.flush()
+	idx.done <- true
+	idx.reader.Close()
+	idx.writer.Close()
+	close(idx.done)
 }
 
 func (i *BlugeIndex) writeBatch() error {
-	if !i.IsDirty() {
-		return nil
-	}
-
-	writer, err := i.Writer()
-	if err != nil {
-		return err
-	}
-
-	err = writer.Batch(i.batch)
+	err := i.writer.Batch(i.batch)
 	if err != nil {
 		return err
 	}
 	i.batch.Reset()
 	i.docsBatched = 0
+
 	return nil
+}
+
+func (idx *BlugeIndex) flush() {
+	idx.wg.Wait()
+	err := idx.writeBatch()
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (i *BlugeIndex) writeDoc(doc *bluge.Document) error {
+	var err error
+	i.batch.Update(doc.ID(), doc)
+	i.docsBatched++
+	if i.docsBatched >= int64(i.BatchSize) {
+		err = i.writeBatch()
+	}
+
+	return err
+}
+
+func (i *BlugeIndex) openReader() (*bluge.Reader, error) {
+	i.m.Lock()
+	defer i.m.Unlock()
+
+	if i.closed {
+		return nil, errors.New("index closed")
+	}
+
+	var err error
+	i.reader.Close()
+	i.reader, err = i.writer.Reader()
+
+	return i.reader, err
 }
