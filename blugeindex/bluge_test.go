@@ -29,6 +29,15 @@ func TestBlugeIndex(t *testing.T) {
 		t.Errorf("documents found: %d (%v)", count, err)
 	}
 	i.Close()
+
+	doc = bluge.NewDocument("2").
+		AddField(bluge.NewTextField("filename", string("test")).StoreValue().HighlightMatches())
+
+	// Test the writer will be automatically re-opened
+	err := i.Index(doc)
+	if err == nil || err != ErrIndexClosed {
+		t.Error("shouldn't be able to write when closed")
+	}
 }
 
 func TestBatchedWrites(t *testing.T) {

@@ -11,6 +11,8 @@ import (
 	qs "github.com/blugelabs/query_string"
 )
 
+var ErrIndexClosed = errors.New("index closed")
+
 type BlugeIndex struct {
 	IndexPath   string
 	BatchSize   uint
@@ -79,7 +81,7 @@ func (i *BlugeIndex) SetBatchSize(size uint) {
 
 func (i *BlugeIndex) Index(doc *bluge.Document) error {
 	if i.closed {
-		return errors.New("index closed")
+		return ErrIndexClosed
 	}
 
 	i.wg.Add(1)
