@@ -24,9 +24,9 @@ type BlugeIndex struct {
 	indexed     chan *IndexedDocument
 	wg          *sync.WaitGroup
 	closed      bool
-	reader      *bluge.Reader
-	writer      *bluge.Writer
 	m           sync.Mutex
+	once        sync.Once
+	writer      *bluge.Writer
 }
 
 type IndexedDocument struct {
@@ -35,7 +35,6 @@ type IndexedDocument struct {
 }
 
 func NewBlugeIndex(indexPath string, batchSize uint) *BlugeIndex {
-	var err error
 	blugeConf := bluge.DefaultConfig(indexPath)
 	idx := &BlugeIndex{conf: &blugeConf, IndexPath: indexPath, BatchSize: batchSize}
 	idx.batch = bluge.NewBatch()
@@ -45,29 +44,6 @@ func NewBlugeIndex(indexPath string, batchSize uint) *BlugeIndex {
 	idx.indexed = make(chan *IndexedDocument)
 	idx.closed = false
 	idx.m = sync.Mutex{}
-
-	idx.writer, err = bluge.OpenWriter(blugeConf)
-	if err != nil {
-		panic(err)
-	}
-	idx.reader, err = idx.writer.Reader()
-	if err != nil {
-		panic(err)
-	}
-
-	go func() {
-		for {
-			select {
-			case doc := <-idx.queue:
-				err := idx.writeDoc(doc)
-				idx.indexed <- &IndexedDocument{Document: doc, Error: err}
-				idx.wg.Done()
-			case <-idx.done:
-				idx.closed = true
-				return
-			}
-		}
-	}()
 
 	return idx
 }
@@ -80,6 +56,29 @@ func (i *BlugeIndex) SetBatchSize(size uint) {
 }
 
 func (i *BlugeIndex) Index(doc *bluge.Document) error {
+	i.once.Do(func() {
+		go func() {
+			var err error
+			i.writer, err = bluge.OpenWriter(*i.conf)
+			if err != nil {
+				panic(err)
+			}
+			defer i.writer.Close()
+			for {
+				select {
+				case doc := <-i.queue:
+					err := i.writeDoc(doc)
+					i.indexed <- &IndexedDocument{Document: doc, Error: err}
+					i.wg.Done()
+				case <-i.done:
+					i.closed = true
+					return
+				default:
+				}
+			}
+		}()
+	})
+
 	if i.closed {
 		return ErrIndexClosed
 	}
@@ -95,53 +94,53 @@ func (i *BlugeIndex) Index(doc *bluge.Document) error {
 }
 
 func (i *BlugeIndex) Count() (uint64, error) {
-	iter, err := i.Search("*")
-	if err != nil {
-		return 0, err
-	}
-
-	match, err := iter.Next()
-	if err != nil {
-		panic(err)
-	}
 	count := uint64(0)
-	for err == nil && match != nil {
-		count++
-		match, err = iter.Next()
-	}
+	err := i.Search("*", func(iter search.DocumentMatchIterator) error {
+		match, err := iter.Next()
+		if err != nil {
+			panic(err)
+		}
+		for err == nil && match != nil {
+			count++
+			match, err = iter.Next()
+		}
 
-	return count, nil
+		return nil
+	})
+	return count, err
 }
 
-func (i *BlugeIndex) Search(q string) (search.DocumentMatchIterator, error) {
+func (i *BlugeIndex) Search(q string, fn func(search.DocumentMatchIterator) error) error {
 	if q == "*" {
 		q = "_id:*"
 	}
 
 	query, err := qs.ParseQueryString(q, qs.DefaultOptions())
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	request := bluge.NewAllMatches(query)
 
-	reader, err := i.openReader()
+	reader, err := i.openOfflineReader()
 	if err != nil {
-		return nil, err
+		return err
 	}
+	defer reader.Close()
 
-	return reader.Search(context.Background(), request)
+	iter, err := reader.Search(context.Background(), request)
+
+	return fn(iter)
 }
 
-func (idx *BlugeIndex) Close() {
-	idx.m.Lock()
-	defer idx.m.Unlock()
+func (i *BlugeIndex) Close() {
+	i.m.Lock()
+	defer i.m.Unlock()
 
-	idx.flush()
-	idx.done <- true
-	idx.reader.Close()
-	idx.writer.Close()
-	close(idx.done)
+	i.wg.Wait()
+	i.writeBatch()
+	i.done <- true
+	close(i.done)
 }
 
 func (i *BlugeIndex) writeBatch() error {
@@ -149,18 +148,11 @@ func (i *BlugeIndex) writeBatch() error {
 	if err != nil {
 		return err
 	}
-	i.batch.Reset()
+
 	i.docsBatched = 0
+	i.batch.Reset()
 
 	return nil
-}
-
-func (idx *BlugeIndex) flush() {
-	idx.wg.Wait()
-	err := idx.writeBatch()
-	if err != nil {
-		panic(err)
-	}
 }
 
 func (i *BlugeIndex) writeDoc(doc *bluge.Document) error {
@@ -174,17 +166,6 @@ func (i *BlugeIndex) writeDoc(doc *bluge.Document) error {
 	return err
 }
 
-func (i *BlugeIndex) openReader() (*bluge.Reader, error) {
-	i.m.Lock()
-	defer i.m.Unlock()
-
-	if i.closed {
-		return nil, errors.New("index closed")
-	}
-
-	var err error
-	i.reader.Close()
-	i.reader, err = i.writer.Reader()
-
-	return i.reader, err
+func (i *BlugeIndex) openOfflineReader() (*bluge.Reader, error) {
+	return bluge.OpenReader(*i.conf)
 }

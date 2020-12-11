@@ -1,5 +1,7 @@
 package rindex
 
+import "github.com/blugelabs/bluge/search"
+
 type SearchResultVisitor = func() bool
 type FieldVisitor = func(field string, value []byte) bool
 
@@ -7,24 +9,24 @@ type FieldVisitor = func(field string, value []byte) bool
 // fVisitor for every field in that search result.
 func (i *Indexer) Search(query string, fVisitor FieldVisitor, srVisitor SearchResultVisitor) (uint64, error) {
 	count := uint64(0)
-	iter, err := i.IndexEngine.Search(query)
-	if err != nil {
-		return count, nil
-	}
-
-	match, err := iter.Next()
-	for err == nil && match != nil {
-		count++
-		if fVisitor != nil {
-			err = match.VisitStoredFields(fVisitor)
-			if err != nil {
-				return count, err
+	err := i.IndexEngine.Search(query, func(iter search.DocumentMatchIterator) error {
+		match, err := iter.Next()
+		for err == nil && match != nil {
+			count++
+			if fVisitor != nil {
+				err = match.VisitStoredFields(fVisitor)
+				if err != nil {
+					return err
+				}
 			}
+			if srVisitor != nil && !srVisitor() {
+				break
+			}
+			match, err = iter.Next()
 		}
-		if srVisitor != nil && !srVisitor() {
-			break
-		}
-		match, err = iter.Next()
-	}
-	return count, nil
+
+		return err
+	})
+
+	return count, err
 }

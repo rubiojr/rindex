@@ -1,10 +1,12 @@
 package blugeindex
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
 	"github.com/blugelabs/bluge"
+	"github.com/blugelabs/bluge/search"
 	"github.com/rubiojr/rindex/internal/testutil"
 )
 
@@ -55,8 +57,9 @@ func TestBatchedWrites(t *testing.T) {
 		t.Errorf("should have two documents in the index, found %d. %v", count, err)
 	}
 
+	fmt.Println("bar")
 	doc3 := bluge.NewDocument("3").
-		AddField(bluge.NewTextField("filename", "test2").StoreValue().HighlightMatches())
+		AddField(bluge.NewTextField("filename", "test3").StoreValue().HighlightMatches())
 	i.Index(doc3)
 
 	if count, err := i.Count(); count != 3 {
@@ -74,16 +77,19 @@ func TestBlugeSearch(t *testing.T) {
 
 	i.Index(doc)
 
-	iter, err := i.Search("filename:test")
+	err := i.Search("filename:test", func(iter search.DocumentMatchIterator) error {
+		match, err := iter.Next()
+		if err != nil {
+			t.Error(err)
+		}
+		if match == nil {
+			t.Error("should find a match")
+		}
+
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
-	}
-	match, err := iter.Next()
-	if err != nil {
-		t.Error(err)
-	}
-	if match == nil {
-		t.Error("should find a match")
 	}
 
 	doc = bluge.NewDocument("2").

@@ -11,7 +11,11 @@ cleanup() {
 
 trap cleanup EXIT
 
-go test -benchmem -run=XXX -bench "^BenchmarkIndexBatch100$" -count 5 > new
+if ! go test -benchmem -run=XXX -bench "^BenchmarkIndexBatch100$" -count 5 > new; then
+  cat new
+  exit 1
+fi
+
 git checkout master > /dev/null 2>&1
 go test -benchmem -run=XXX -bench "^BenchmarkIndexBatch100$" -count 5 > old
 
