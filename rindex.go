@@ -23,6 +23,8 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
+const MAX_ALT_PATHS = 5
+
 // IndexOptions to be passed to Index
 type IndexOptions struct {
 	// The Filter decides if the file is indexed or not
@@ -235,6 +237,10 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 	fileID := hex.EncodeToString(nodeFileID(node))
 
 	altPaths := i.altPathsForNode(fileID, stats)
+	if len(altPaths) > MAX_ALT_PATHS {
+		return
+	}
+
 	for _, p := range altPaths {
 		if p == nodepath && !opts.Reindex {
 			stats.AlreadyIndexedInc()
