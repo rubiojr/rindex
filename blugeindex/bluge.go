@@ -8,6 +8,7 @@ import (
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/index"
 	"github.com/blugelabs/bluge/search"
+	"github.com/blugelabs/bluge/search/similarity"
 	qs "github.com/blugelabs/query_string"
 )
 
@@ -16,7 +17,7 @@ var ErrIndexClosed = errors.New("index closed")
 type BlugeIndex struct {
 	IndexPath   string
 	BatchSize   uint
-	conf        *bluge.Config
+	conf        *index.Config
 	docsBatched int64
 	batch       *index.Batch
 	queue       chan *bluge.Document
@@ -26,7 +27,7 @@ type BlugeIndex struct {
 	closed      bool
 	m           sync.Mutex
 	once        sync.Once
-	writer      *bluge.Writer
+	writer      *index.Writer
 }
 
 type IndexedDocument struct {
@@ -35,8 +36,7 @@ type IndexedDocument struct {
 }
 
 func NewBlugeIndex(indexPath string, batchSize uint) *BlugeIndex {
-	blugeConf := bluge.DefaultConfig(indexPath)
-	idx := &BlugeIndex{conf: &blugeConf, IndexPath: indexPath, BatchSize: batchSize}
+	idx := &BlugeIndex{conf: defaultConf(indexPath), IndexPath: indexPath, BatchSize: batchSize}
 	idx.batch = bluge.NewBatch()
 	idx.queue = make(chan *bluge.Document)
 	idx.done = make(chan bool)
@@ -59,7 +59,7 @@ func (i *BlugeIndex) Index(doc *bluge.Document) error {
 	i.once.Do(func() {
 		go func() {
 			var err error
-			i.writer, err = bluge.OpenWriter(*i.conf)
+			i.writer, err = index.OpenWriter(*i.conf)
 			if err != nil {
 				panic(err)
 			}
@@ -68,6 +68,10 @@ func (i *BlugeIndex) Index(doc *bluge.Document) error {
 				select {
 				case doc := <-i.queue:
 					err := i.writeDoc(doc)
+					// FIXME: we need proper error handling
+					if err != nil {
+						panic(err)
+					}
 					i.indexed <- &IndexedDocument{Document: doc, Error: err}
 					i.wg.Done()
 				case <-i.done:
@@ -167,5 +171,22 @@ func (i *BlugeIndex) writeDoc(doc *bluge.Document) error {
 }
 
 func (i *BlugeIndex) openOfflineReader() (*bluge.Reader, error) {
-	return bluge.OpenReader(*i.conf)
+	return bluge.OpenReader(bluge.DefaultConfig(i.IndexPath))
+}
+
+func defaultConf(path string) *index.Config {
+	indexConfig := index.DefaultConfig(path)
+	allDocsFields := bluge.NewKeywordField("", "")
+	_ = allDocsFields.Analyze(0)
+	indexConfig = indexConfig.WithVirtualField(allDocsFields)
+	indexConfig = indexConfig.WithNormCalc(func(field string, length int) float32 {
+		return similarity.NewBM25Similarity().ComputeNorm(length)
+	})
+	//causes trouble for searches in tests currently
+	//indexConfig = indexConfig.WithUnsafeBatches()
+
+	// helps with file descriptor and memory usage
+	indexConfig = indexConfig.WithPersisterNapTimeMSec(100)
+
+	return &indexConfig
 }

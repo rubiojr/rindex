@@ -204,6 +204,9 @@ func (i *Indexer) initCaches() error {
 	o := &lopt.Options{
 		NoSync:      true,
 		Compression: opt.NoCompression,
+		// https://github.com/syndtr/goleveldb/issues/212
+		OpenFilesCacheCapacity: 50,
+		// CompactionTableSizeMultiplier: 2,
 	}
 
 	i.idCache, err = leveldb.OpenFile(idCache, o)
