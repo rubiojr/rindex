@@ -182,11 +182,16 @@ func defaultConf(path string) *index.Config {
 	indexConfig = indexConfig.WithNormCalc(func(field string, length int) float32 {
 		return similarity.NewBM25Similarity().ComputeNorm(length)
 	})
-	//causes trouble for searches in tests currently
+
+	// Causes trouble for searches in tests currently
+	// Need to try persisted callback, as described here https://github.com/blevesearch/bleve/issues/1266
 	//indexConfig = indexConfig.WithUnsafeBatches()
 
 	// helps with file descriptor and memory usage
 	indexConfig = indexConfig.WithPersisterNapTimeMSec(100)
+
+	// Also from https://github.com/blevesearch/bleve/issues/1266
+	// indexConfig.PersisterNapUnderNumFiles = 0
 
 	return &indexConfig
 }
