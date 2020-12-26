@@ -90,11 +90,9 @@ func (i *BlugeIndex) Index(doc *bluge.Document) error {
 	i.wg.Add(1)
 	i.queue <- doc
 
-	for doc := range i.indexed {
-		return doc.Error
-	}
+	di := <-i.indexed
 
-	return nil
+	return di.Error
 }
 
 func (i *BlugeIndex) Count() (uint64, error) {
