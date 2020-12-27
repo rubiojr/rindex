@@ -21,7 +21,10 @@ type IndexStats struct {
 	Errors []error
 	// Last file indexed
 	LastMatch string
-	m         *sync.Mutex
+	// Snapshots that will be scanned
+	MissingSnapshots uint64
+
+	m *sync.Mutex
 }
 
 func NewStats() IndexStats {
@@ -67,5 +70,11 @@ func (s *IndexStats) ScannedFilesInc() {
 func (s *IndexStats) AlreadyIndexedInc() {
 	s.m.Lock()
 	s.AlreadyIndexed++
+	s.m.Unlock()
+}
+
+func (s *IndexStats) SetMissingSnapshots(count uint64) {
+	s.m.Lock()
+	s.MissingSnapshots = count
 	s.m.Unlock()
 }

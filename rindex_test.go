@@ -59,6 +59,9 @@ func TestIndexWithPath(t *testing.T) {
 	if stats.AlreadyIndexed != 0 {
 		t.Errorf("%+v", stats)
 	}
+	if stats.MissingSnapshots != 1 {
+		t.Error("only one snapshot should be present")
+	}
 	if len(stats.Errors) != 0 {
 		t.Errorf("errors found while indexing: %+v", stats.Errors)
 	}

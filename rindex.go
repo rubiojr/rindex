@@ -127,6 +127,14 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 		return IndexStats{}, err
 	}
 
+	go func() {
+		snaps, err := i.listMissingSnapshots(ctx, repo)
+		if err != nil {
+			stats.ErrorsAdd(err)
+		}
+		stats.SetMissingSnapshots(uint64(len(snaps)))
+	}()
+
 	if err = repo.LoadIndex(ctx); err != nil {
 		return stats, err
 	}
@@ -159,6 +167,7 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 	return stats, nil
 }
 
+// FIXME: this can't be called when indexing
 func (i *Indexer) MissingSnapshots(ctx context.Context) ([]string, error) {
 	missing := []string{}
 
@@ -177,6 +186,11 @@ func (i *Indexer) MissingSnapshots(ctx context.Context) ([]string, error) {
 		return missing, err
 	}
 
+	return i.listMissingSnapshots(ctx, repo)
+}
+
+func (i Indexer) listMissingSnapshots(ctx context.Context, repo *repository.Repository) ([]string, error) {
+	var missing []string
 	snaps, err := listSnapshots(ctx, repo)
 	if err != nil {
 		return missing, err
@@ -188,7 +202,7 @@ func (i *Indexer) MissingSnapshots(ctx context.Context) ([]string, error) {
 		missing = append(missing, snap.ID().String())
 	}
 
-	return missing, nil
+	return missing, err
 }
 
 func (i *Indexer) initCaches() error {
