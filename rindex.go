@@ -23,8 +23,6 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-const MAX_ALT_PATHS = 5
-
 // IndexOptions to be passed to Index
 type IndexOptions struct {
 	// The Filter decides if the file is indexed or not
@@ -64,7 +62,6 @@ type Indexer struct {
 	IndexPath string
 	// IndexingEngine being used (Bluge is the only one supported right now)
 	IndexEngine *blugeindex.BlugeIndex
-	idCache     *leveldb.DB
 	snapCache   *leveldb.DB
 }
 
@@ -118,6 +115,7 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 	if err != nil {
 		return stats, err
 	}
+	defer i.close()
 
 	ropts := rapi.DefaultOptions
 	ropts.Password = i.RepositoryPassword
@@ -163,7 +161,6 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 		stats.ErrorsAdd(err)
 	}
 
-	i.close()
 	return stats, nil
 }
 
@@ -172,11 +169,10 @@ func (i *Indexer) MissingSnapshots(ctx context.Context) ([]string, error) {
 	missing := []string{}
 
 	err := i.initCaches()
-	defer i.closeCaches()
-
 	if err != nil {
 		return missing, err
 	}
+	defer i.snapCache.Close()
 
 	ropts := rapi.DefaultOptions
 	ropts.Password = i.RepositoryPassword
@@ -210,7 +206,6 @@ func (i *Indexer) initCaches() error {
 
 	indexDir := filepath.Dir(i.IndexPath)
 	cacheDir := filepath.Join(indexDir, "cache")
-	idCache := filepath.Join(cacheDir, "id.cache")
 	snapCache := filepath.Join(cacheDir, "snap.cache")
 
 	os.MkdirAll(cacheDir, 0755)
@@ -221,11 +216,6 @@ func (i *Indexer) initCaches() error {
 		// https://github.com/syndtr/goleveldb/issues/212
 		OpenFilesCacheCapacity: 50,
 		// CompactionTableSizeMultiplier: 2,
-	}
-
-	i.idCache, err = leveldb.OpenFile(idCache, o)
-	if err != nil {
-		return err
 	}
 
 	i.snapCache, err = leveldb.OpenFile(snapCache, o)
@@ -253,9 +243,9 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 
 	fileID := hex.EncodeToString(nodeFileID(node))
 
-	altPaths := i.altPathsForNode(fileID, stats)
-	if len(altPaths) > MAX_ALT_PATHS {
-		return
+	altPaths, err := i.IndexEngine.BatchedPathsFor(fileID)
+	if err != nil {
+		panic(err)
 	}
 
 	for _, p := range altPaths {
@@ -266,7 +256,10 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 	}
 	altPaths = append(altPaths, nodepath)
 
-	if dupe, _ := i.idCache.Has([]byte(fileID), nil); !dupe {
+	if ok, err := i.IndexEngine.Has(fileID); !ok {
+		if err != nil {
+			panic(err)
+		}
 		stats.IndexedFilesInc()
 	}
 	stats.LastMatch = node.Name
@@ -283,50 +276,14 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 			AddField(bluge.NewTextField("alt_paths", marshalAltPaths(altPaths)).StoreValue()).
 			AddField(bluge.NewCompositeFieldExcluding("_all", nil))
 	}
-	err := i.IndexEngine.Index(doc)
+	err = i.IndexEngine.Index(doc, nodepath)
 	if err != nil {
 		stats.ErrorsAdd(err)
-	} else {
-		err = i.addToCaches(fileID, altPaths)
-		if err != nil {
-			stats.ErrorsAdd(err)
-		}
 	}
-}
-
-// fetch alternative paths we already added for this node
-func (i *Indexer) altPathsForNode(fileID string, stats *IndexStats) []string {
-	var altPaths []string
-	val, err := i.idCache.Get([]byte(fileID), nil)
-	if err == nil {
-		err := json.Unmarshal(val, &altPaths)
-		if err != nil {
-			stats.ErrorsAdd(fmt.Errorf("error unmarshalling alt_paths for %s: %v", fileID, err))
-		}
-	} else {
-		if err != leveldb.ErrNotFound {
-			stats.ErrorsAdd(fmt.Errorf("error retrieving %s from cache: %v", fileID, err))
-		}
-	}
-
-	return altPaths
-}
-
-func (i *Indexer) addToCaches(fileID string, paths []string) error {
-	err := i.idCache.Put([]byte(fileID), []byte(marshalAltPaths(paths)), nil)
-	return err
 }
 
 func (i *Indexer) close() {
-	i.closeCaches()
-}
-
-func (i *Indexer) closeCaches() {
-	err := i.idCache.Close()
-	if err != nil {
-		panic(err)
-	}
-	err = i.snapCache.Close()
+	err := i.snapCache.Close()
 	if err != nil {
 		panic(err)
 	}

@@ -26,7 +26,7 @@ func benchIndex(batchSize uint) error {
 		BatchSize: batchSize,
 	}
 	stats, err := idx.Index(context.Background(), idxOpts, nil)
-	if stats.IndexedFiles != 91247 {
+	if stats.IndexedFiles != 91519 {
 		err = fmt.Errorf("number of indexed nodes does not match: %d", stats.IndexedFiles)
 	}
 	return err

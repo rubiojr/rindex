@@ -3,6 +3,7 @@ package blugeindex
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync"
 
 	"github.com/blugelabs/bluge"
@@ -10,7 +11,13 @@ import (
 	"github.com/blugelabs/bluge/search"
 	"github.com/blugelabs/bluge/search/similarity"
 	qs "github.com/blugelabs/query_string"
+	"github.com/syndtr/goleveldb/leveldb"
+	"github.com/syndtr/goleveldb/leveldb/opt"
+	lopt "github.com/syndtr/goleveldb/leveldb/opt"
+	"github.com/vmihailenco/msgpack/v5"
 )
+
+const maxPaths = 10
 
 var ErrIndexClosed = errors.New("index closed")
 
@@ -20,59 +27,78 @@ type BlugeIndex struct {
 	conf        *index.Config
 	docsBatched int64
 	batch       *index.Batch
-	queue       chan *bluge.Document
+	queue       chan *IndexedDocument
 	done        chan bool
 	indexed     chan *IndexedDocument
 	wg          *sync.WaitGroup
 	closed      bool
-	m           sync.Mutex
 	once        sync.Once
 	writer      *index.Writer
+	idBuf       map[string][]string
+	idCache     *leveldb.DB
+	m           sync.Mutex
+	indexing    bool
 }
 
 type IndexedDocument struct {
 	Document *bluge.Document
+	Path     string
 	Error    error
 }
 
 func NewBlugeIndex(indexPath string, batchSize uint) *BlugeIndex {
 	idx := &BlugeIndex{conf: defaultConf(indexPath), IndexPath: indexPath, BatchSize: batchSize}
 	idx.batch = bluge.NewBatch()
-	idx.queue = make(chan *bluge.Document)
+	idx.queue = make(chan *IndexedDocument)
 	idx.done = make(chan bool)
 	idx.wg = &sync.WaitGroup{}
 	idx.indexed = make(chan *IndexedDocument)
 	idx.closed = false
-	idx.m = sync.Mutex{}
+	idx.idBuf = map[string][]string{}
 
 	return idx
 }
 
 func (i *BlugeIndex) SetBatchSize(size uint) {
-	i.m.Lock()
-	defer i.m.Unlock()
-
 	i.BatchSize = size
 }
 
-func (i *BlugeIndex) Index(doc *bluge.Document) error {
+func (i *BlugeIndex) Index(doc *bluge.Document, path string) error {
 	i.once.Do(func() {
 		go func() {
+			i.m.Lock()
+			i.indexing = true
+			i.m.Unlock()
+
 			var err error
+			i.idCache, err = i.openIDDB()
+			if err != nil {
+				panic(err)
+			}
+
+			defer func() {
+				i.m.Lock()
+				i.indexing = false
+				i.m.Unlock()
+				i.safeIDDBClose()
+			}()
+
 			i.writer, err = index.OpenWriter(*i.conf)
 			if err != nil {
 				panic(err)
 			}
+
 			defer i.writer.Close()
 			for {
 				select {
 				case doc := <-i.queue:
 					err := i.writeDoc(doc)
+					doc.Error = err
 					// FIXME: we need proper error handling
 					if err != nil {
 						panic(err)
 					}
-					i.indexed <- &IndexedDocument{Document: doc, Error: err}
+					i.indexed <- doc
 					i.wg.Done()
 				case <-i.done:
 					i.closed = true
@@ -88,7 +114,7 @@ func (i *BlugeIndex) Index(doc *bluge.Document) error {
 	}
 
 	i.wg.Add(1)
-	i.queue <- doc
+	i.queue <- &IndexedDocument{Document: doc, Path: path}
 
 	di := <-i.indexed
 
@@ -136,9 +162,6 @@ func (i *BlugeIndex) Search(q string, fn func(search.DocumentMatchIterator) erro
 }
 
 func (i *BlugeIndex) Close() {
-	i.m.Lock()
-	defer i.m.Unlock()
-
 	i.wg.Wait()
 	i.writeBatch()
 	i.done <- true
@@ -151,15 +174,105 @@ func (i *BlugeIndex) writeBatch() error {
 		return err
 	}
 
+	for k, v := range i.idBuf {
+		present, err := i.idCache.Has([]byte(k), nil)
+		if err != nil {
+			panic(err)
+		}
+		if present {
+			err = i.addPathsToID(k, v)
+		} else {
+			err = i.writeFileID(k, v)
+		}
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	i.idBuf = map[string][]string{}
 	i.docsBatched = 0
 	i.batch.Reset()
 
 	return nil
 }
 
-func (i *BlugeIndex) writeDoc(doc *bluge.Document) error {
+func (i *BlugeIndex) BatchedPathsFor(fileID string) ([]string, error) {
+	paths, err := i.PathsFor(fileID)
+	if err != nil && err != leveldb.ErrNotFound {
+		return paths, err
+	}
+
+	return append(paths, i.idBuf[fileID]...), nil
+}
+
+func (i *BlugeIndex) Has(fileID string) (bool, error) {
 	var err error
-	i.batch.Update(doc.ID(), doc)
+	i.idCache, err = i.openIDDB()
+	if err != nil {
+		panic(err)
+	}
+	defer i.safeIDDBClose()
+
+	return i.idCache.Has([]byte(fileID), nil)
+}
+
+func (i *BlugeIndex) PathsFor(fileID string) ([]string, error) {
+	var err error
+	i.idCache, err = i.openIDDB()
+	if err != nil {
+		panic(err)
+	}
+	defer i.safeIDDBClose()
+
+	return i.unmarshalPaths(fileID)
+}
+
+func (i *BlugeIndex) addPathsToID(fileID string, paths []string) error {
+	spaths, err := i.unmarshalPaths(fileID)
+	if err != nil {
+		return err
+	}
+
+	for _, path := range paths {
+		if len(spaths) < maxPaths {
+			spaths = append(spaths, path)
+		}
+	}
+
+	return i.writeFileID(fileID, spaths)
+}
+
+func (i *BlugeIndex) writeFileID(fileID string, paths []string) error {
+	bpaths, err := msgpack.Marshal(paths)
+	if err != nil {
+		return err
+	}
+	err = i.idCache.Put([]byte(fileID), bpaths, nil)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (i *BlugeIndex) unmarshalPaths(fileID string) ([]string, error) {
+	var paths []string
+	bpaths, err := i.idCache.Get([]byte(fileID), nil)
+	if err != nil {
+		return paths, err
+	}
+	err = msgpack.Unmarshal(bpaths, &paths)
+	return paths, err
+}
+
+func (i *BlugeIndex) writeDoc(doc *IndexedDocument) error {
+	var err error
+	fid := string(doc.Document.ID().Term())
+
+	if len(i.idBuf[fid]) < maxPaths {
+		i.idBuf[fid] = append(i.idBuf[fid], doc.Path)
+	}
+	i.batch.Update(doc.Document.ID(), doc.Document)
 	i.docsBatched++
 	if i.docsBatched >= int64(i.BatchSize) {
 		err = i.writeBatch()
@@ -192,4 +305,32 @@ func defaultConf(path string) *index.Config {
 	// indexConfig.PersisterNapUnderNumFiles = 0
 
 	return &indexConfig
+}
+
+func (i *BlugeIndex) openIDDB() (*leveldb.DB, error) {
+	i.m.Lock()
+	defer i.m.Unlock()
+
+	if i.idCache != nil {
+		return i.idCache, nil
+	}
+
+	o := &lopt.Options{
+		NoSync:      true,
+		Compression: opt.NoCompression,
+		// https://github.com/syndtr/goleveldb/issues/212
+		OpenFilesCacheCapacity: 50,
+		// CompactionTableSizeMultiplier: 2,
+	}
+	return leveldb.OpenFile(filepath.Join(i.IndexPath, "id.db"), o)
+}
+
+func (i *BlugeIndex) safeIDDBClose() {
+	i.m.Lock()
+	defer i.m.Unlock()
+
+	if !i.indexing {
+		i.idCache.Close()
+		i.idCache = nil
+	}
 }
