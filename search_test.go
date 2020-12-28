@@ -2,7 +2,6 @@ package rindex
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"testing"
 
@@ -28,7 +27,7 @@ func TestSearch(t *testing.T) {
 		t.Errorf("should return one results, got %d", count)
 	}
 
-	count, err = idx.Search("_id:320b5d12843eb4a96a283a1df0a011f532dd00c921913f9e64ff25477ba1af13", nil, nil)
+	count, err = idx.Search("bhash:320b5d12843eb4a96a283a1df0a011f532dd00c921913f9e64ff25477ba1af13", nil, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -57,7 +56,7 @@ func TestSearchAll(t *testing.T) {
 
 	found := map[string]bool{}
 	visitor := func(field string, value []byte) bool {
-		if field == "_id" {
+		if field == "bhash" {
 			found[string(value)] = true
 		}
 		return true
@@ -66,7 +65,7 @@ func TestSearchAll(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	if count != 3 {
+	if count != 4 {
 		t.Errorf("should return tree results, got %d", count)
 	}
 
@@ -93,18 +92,18 @@ func TestSearchMultiplePaths(t *testing.T) {
 
 	var altPaths []string
 	visitor := func(field string, value []byte) bool {
-		if field == "alt_paths" {
-			json.Unmarshal(value, &altPaths)
+		if field == "path" {
+			altPaths = append(altPaths, string(value))
 		}
 		return true
 	}
 
-	count, err := idx.Search("dupebar", visitor, nil)
+	count, err := idx.Search("bhash:f22f05e5d1d07ab02a1c25f89d37b882855823257377313364351b9d2ca1cd22", visitor, nil)
 	if err != nil {
 		t.Error(err)
 	}
 
-	if count != 1 {
+	if count != 2 {
 		t.Fatalf("should return one result, got %d", count)
 	}
 

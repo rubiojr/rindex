@@ -9,7 +9,7 @@ import (
 	"github.com/rubiojr/rindex/internal/testutil"
 )
 
-const FILES_TO_INDEX = 3
+const FILES_TO_INDEX = 4
 const SCANNED_FILES = 4
 
 func TestMain(m *testing.M) {
@@ -23,9 +23,8 @@ func TestSetBatchSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	idxOpts := IndexOptions{
-		BatchSize: 10,
-	}
+	idxOpts := DefaultIndexOptions
+	idxOpts.BatchSize = 10
 	_, _ = idx.Index(context.Background(), idxOpts, progress)
 	if idx.IndexEngine.BatchSize != 10 {
 		t.Errorf("Index function does not set indexing engine batch size. Expected 10, available %d", idx.IndexEngine.BatchSize)
@@ -38,7 +37,7 @@ func TestIndexWithPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	idxOpts := IndexOptions{}
+	idxOpts := DefaultIndexOptions
 
 	stats, err := idx.Index(context.Background(), idxOpts, progress)
 	if err != nil {
@@ -65,6 +64,17 @@ func TestIndexWithPath(t *testing.T) {
 	if len(stats.Errors) != 0 {
 		t.Errorf("errors found while indexing: %+v", stats.Errors)
 	}
+	for k := range stats.SnapshotFiles {
+		if stats.SnapshotFiles[k] != 4 {
+			t.Errorf("snapshot should have 4 files only: %+v", stats.SnapshotFiles)
+		}
+	}
+	if stats.CurrentSnapshotFiles != 4 {
+		t.Errorf("current snapshot files should be 4, found %d", stats.CurrentSnapshotFiles)
+	}
+	if stats.CurrentSnapshotTotalFiles != 4 {
+		t.Errorf("current snapshot total files should be 4, found %d", stats.CurrentSnapshotTotalFiles)
+	}
 
 	// reindex not enabled
 	stats, err = idx.Index(context.Background(), idxOpts, progress)
@@ -87,11 +97,15 @@ func TestIndexWithPath(t *testing.T) {
 }
 
 func TestReindex(t *testing.T) {
+	os.Setenv("RESTIC_REPOSITORY", testutil.RandomRepoURI())
+	os.Setenv("RESTIC_PASSWORD", testutil.REPO_PASS)
+	testutil.SetupNewRepo()
+
 	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	idxOpts := IndexOptions{}
+	idxOpts := DefaultIndexOptions
 
 	stats, err := idx.Index(context.Background(), idxOpts, nil)
 	if err != nil {
@@ -116,24 +130,39 @@ func TestReindex(t *testing.T) {
 		t.Error("errors found while indexing")
 	}
 
-	// reindex enabled
-	idxOpts.Reindex = true
+	testutil.CreateSnapshot()
 	stats, err = idx.Index(context.Background(), idxOpts, nil)
 	if err != nil {
 		t.Error(err)
 	}
 	if stats.IndexedFiles != 0 {
-		t.Errorf("invalid number of indexed files %+v", stats)
-	}
-	if stats.ScannedFiles != SCANNED_FILES {
 		t.Errorf("%+v", stats)
 	}
-	if stats.ScannedSnapshots != 1 {
+	if stats.AlreadyIndexed != FILES_TO_INDEX {
+		t.Errorf("%+v", stats)
+	}
+
+	// reindex enabled
+	testutil.CreateSnapshot()
+	idxOpts.Reindex = true
+	stats, err = idx.Index(context.Background(), idxOpts, nil)
+	if err != nil {
+		t.Error(err)
+	}
+	if stats.IndexedFiles != FILES_TO_INDEX*3 {
+		t.Errorf("invalid number of indexed files %+v", stats)
+	}
+	if stats.ScannedFiles != SCANNED_FILES*3 {
+		t.Errorf("%+v", stats)
+	}
+	if stats.ScannedSnapshots != 3 {
 		t.Errorf("invalid number of indexed snapshots %+v", stats)
 	}
 	if len(stats.Errors) != 0 {
 		t.Error("errors found while indexing")
 	}
+
+	testutil.ResetEnv()
 }
 
 func TestIndexWithEngine(t *testing.T) {
@@ -143,7 +172,7 @@ func TestIndexWithEngine(t *testing.T) {
 		t.Fatal(err)
 	}
 	idx.IndexEngine = blugeindex.NewBlugeIndex("tmp/test2.idx", 10)
-	opts := IndexOptions{}
+	opts := DefaultIndexOptions
 	stats, err := idx.Index(context.Background(), opts, progress)
 	if err != nil {
 		t.Error(err)
@@ -173,18 +202,18 @@ func TestIndexWithUnbufferedProgress(t *testing.T) {
 
 func TestMissingSnapshots(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), testutil.RepoURI(), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	idxOpts := IndexOptions{}
+	idxOpts := DefaultIndexOptions
 
 	missing, err := idx.MissingSnapshots(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(missing) != 1 {
-		t.Error("should report a missing snapshot")
+		t.Errorf("should report a missing snapshot: %+v", missing)
 	}
 
 	_, err = idx.Index(context.Background(), idxOpts, progress)

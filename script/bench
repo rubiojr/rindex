@@ -9,14 +9,17 @@ cleanup() {
   rm -rf "$d"
 }
 
+count=5
+tname='^BenchmarkIndexBatch100$'
+
 trap cleanup EXIT
 
-if ! go test -benchmem -run=XXX -bench "^BenchmarkIndexBatch100$" -count 5 > new; then
+if ! go test -benchmem -run=XXX -bench "$tname" -count $count > new; then
   cat new
   exit 1
 fi
 
 git checkout master > /dev/null 2>&1
-go test -benchmem -run=XXX -bench "^BenchmarkIndexBatch100$" -count 5 > old
+go test -benchmem -run=XXX -bench "$tname" -count $count > old
 
 benchstat old new

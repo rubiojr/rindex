@@ -12,7 +12,7 @@ const devIndexPath = "/tmp/rindex-tests/rindex-dev.bluge"
 
 var devResticPath = filepath.Join(os.Getenv("HOME"), "restic-dev")
 
-const shouldIndex = 92181
+const shouldIndex = 93351
 
 func benchIndex(batchSize uint) error {
 	os.Setenv("RESTIC_REPOSITORY", devResticPath)

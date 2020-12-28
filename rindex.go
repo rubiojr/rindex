@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +11,8 @@ import (
 
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/analysis"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/rubiojr/rapi"
 	"github.com/rubiojr/rapi/repository"
 	"github.com/rubiojr/rapi/restic"
@@ -32,25 +33,14 @@ type IndexOptions struct {
 	// for large number of files.
 	// 0 or 1 disables batching. Defaults to 1 (no batching) if not set.
 	BatchSize uint
-	// If set to true, basic file metadata will be added to every document
-	// indexed:
-	//
-	//   repository_id: Restic's repository ID
-	//   path: the path of the file when it was backed up
-	//   hostname: the host that was backed up
-	//   mtime: file modification time when it was backed up
-	//   blobs: raw data blobs that form the file
-	//   size: file size when it was backed up
-	//
-	// If set to false, the DocumentBuilder implementing BuildDocument is fully responsible
-	// for the information to be indexed
-	AppendFileMeta bool
 	// If set to true, all the repository snapshots and files will be scanned and re-indexed.
 	Reindex bool
 	// DocumentBuilder is responsible of creating the Bluge document that will be indexed
 	DocumentBuilder DocumentBuilder
 
 	filenameAnalyzer *analysis.Analyzer
+
+	Debug bool
 }
 
 type Indexer struct {
@@ -73,7 +63,6 @@ type Indexer struct {
 var DefaultIndexOptions = IndexOptions{
 	Filter:           &MatchAllFilter{},
 	BatchSize:        1,
-	AppendFileMeta:   true,
 	DocumentBuilder:  FileDocumentBuilder{},
 	filenameAnalyzer: blugeindex.NewFilenameAnalyzer(),
 }
@@ -91,6 +80,12 @@ func New(indexPath string, repo, pass string) (Indexer, error) {
 	indexer.RepositoryLocation = repo
 	indexer.RepositoryPassword = pass
 
+	if os.Getenv("RINDEX_DEBUG") == "1" {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	} else {
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	}
+
 	return indexer, nil
 }
 
@@ -106,6 +101,10 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 	}
 	if opts.Filter == nil {
 		opts.Filter = &MatchAllFilter{}
+	}
+
+	if opts.filenameAnalyzer == nil {
+		opts.filenameAnalyzer = blugeindex.NewFilenameAnalyzer()
 	}
 
 	i.IndexEngine.SetBatchSize(opts.BatchSize)
@@ -142,6 +141,17 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 			stats.ErrorsAdd(err)
 			return err
 		}
+
+		stats.CurrentSnapshotFiles = 0
+		go func() {
+			sid := snap.ID().String()
+			c, err := countFiles(ctx, repo, sid)
+			if err != nil {
+				log.Error().Err(err).Msgf("error counting snapshot %s files", sid)
+			}
+			stats.SetSnapshotFiles(sid, c)
+			stats.SetCurrentSnapshotTotalFiles(c)
+		}()
 
 		if _, err := i.snapCache.Get(snap.ID()[:], nil); err == nil && !opts.Reindex {
 			return nil
@@ -229,53 +239,50 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 	}
 
 	stats.ScannedNodesInc()
+	stats.LastMatch = node.Name
 
 	if node.Type != "file" {
 		return
 	}
 
 	stats.ScannedFilesInc()
+	stats.CurrentSnapshotFilesInc()
 
 	if !opts.Filter.ShouldIndex(nodepath) {
 		stats.MismatchInc()
 		return
 	}
 
-	fileID := hex.EncodeToString(nodeFileID(node))
+	fileID := nodeFileID(node, nodepath)
+	bhash := hashBlobs(node)
 
-	altPaths, err := i.IndexEngine.BatchedPathsFor(fileID)
+	present, err := i.IndexEngine.Has(fileID)
 	if err != nil {
-		panic(err)
+		stats.ErrorsAdd(err)
+		return
 	}
 
-	for _, p := range altPaths {
-		if p == nodepath && !opts.Reindex {
-			stats.AlreadyIndexedInc()
+	if present {
+		stats.AlreadyIndexedInc()
+		if !opts.Reindex {
 			return
 		}
 	}
-	altPaths = append(altPaths, nodepath)
 
-	if ok, err := i.IndexEngine.Has(fileID); !ok {
-		if err != nil {
-			panic(err)
-		}
-		stats.IndexedFilesInc()
-	}
-	stats.LastMatch = node.Name
+	stats.IndexedFilesInc()
 
-	doc := opts.DocumentBuilder.BuildDocument(fileID, node, repo)
-	doc.AddField(bluge.NewStoredOnlyField("blobs", marshalBlobIDs(node.Content, repo.Index())))
-	if opts.AppendFileMeta {
-		doc.AddField(bluge.NewTextField("filename", string(node.Name)).WithAnalyzer(opts.filenameAnalyzer).StoreValue()).
-			AddField(bluge.NewTextField("repository_id", repoID).StoreValue()).
-			AddField(bluge.NewTextField("path", nodepath).StoreValue()).
-			AddField(bluge.NewTextField("hostname", host).StoreValue()).
-			AddField(bluge.NewDateTimeField("mtime", node.ModTime).StoreValue()).
-			AddField(bluge.NewNumericField("size", float64(node.Size)).StoreValue()).
-			AddField(bluge.NewTextField("alt_paths", marshalAltPaths(altPaths)).StoreValue()).
-			AddField(bluge.NewCompositeFieldExcluding("_all", nil))
-	}
+	doc := opts.DocumentBuilder.BuildDocument(fileID, node, repo).
+		AddField(bluge.NewStoredOnlyField("blobs", marshalBlobIDs(node.Content, repo.Index()))).
+		AddField(bluge.NewTextField("filename", string(node.Name)).WithAnalyzer(opts.filenameAnalyzer).StoreValue()).
+		AddField(bluge.NewTextField("repository_id", repoID).StoreValue()).
+		AddField(bluge.NewTextField("path", nodepath).StoreValue()).
+		AddField(bluge.NewTextField("hostname", host).StoreValue()).
+		AddField(bluge.NewTextField("bhash", bhash).StoreValue()).
+		AddField(bluge.NewDateTimeField("mtime", node.ModTime).StoreValue()).
+		AddField(bluge.NewNumericField("size", float64(node.Size)).StoreValue()).
+		AddField(bluge.NewCompositeFieldExcluding("_all", nil))
+
+	log.Debug().Msgf("bhash: %s", bhash)
 	err = i.IndexEngine.Index(doc, nodepath)
 	if err != nil {
 		stats.ErrorsAdd(err)
@@ -296,8 +303,7 @@ func (i *Indexer) walkSnapshot(ctx context.Context, repo *repository.Repository,
 
 	return walker.Walk(ctx, repo, *sn.Tree, nil, func(parentTreeID restic.ID, nodepath string, node *restic.Node, err error) (bool, error) {
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading tree %v: %v\n", parentTreeID, err)
-
+			log.Error().Err(err).Msgf("Error loading tree %v: %v", parentTreeID, err)
 			return false, walker.ErrSkipNode
 		}
 
@@ -311,31 +317,23 @@ func (i *Indexer) walkSnapshot(ctx context.Context, repo *repository.Repository,
 
 }
 
-func nodeFileID(node *restic.Node) []byte {
+func hashBlobs(node *restic.Node) string {
 	var bb []byte
 	for _, c := range node.Content {
 		bb = append(bb, []byte(c[:])...)
 	}
 	sha := sha256.Sum256(bb)
-	return sha[:]
+	return hex.EncodeToString(sha[:])
 }
 
-func marshalAltPaths(paths []string) string {
-	altPaths := map[string]bool{}
-	pa := []string{}
-	for _, path := range paths {
-		if _, ok := altPaths[path]; !ok {
-			pa = append(pa, path)
-			altPaths[path] = true
-		}
+func nodeFileID(node *restic.Node, path string) string {
+	var bb []byte
+	for _, c := range node.Content {
+		bb = append(bb, []byte(c[:])...)
 	}
-
-	j, err := json.Marshal(pa)
-	if err != nil {
-		panic(err)
-	}
-
-	return string(j)
+	bb = append(bb, []byte(path[:])...)
+	sha := sha256.Sum256(bb)
+	return hex.EncodeToString(sha[:])
 }
 
 func marshalBlobIDs(ids restic.IDs, idx restic.MasterIndex) []byte {
@@ -362,7 +360,7 @@ func listSnapshots(ctx context.Context, repo *repository.Repository) (<-chan *re
 		err := repo.List(ctx, restic.SnapshotFile, func(id restic.ID, size int64) error {
 			sn, err := restic.LoadSnapshot(ctx, repo, id)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "could not load snapshot %v: %v\n", id.Str(), err)
+				log.Error().Err(err).Msgf("could not load snapshot %v: %v\n", id.Str(), err)
 				return nil
 			}
 			snapshots = append(snapshots, sn)
@@ -384,4 +382,37 @@ func listSnapshots(ctx context.Context, repo *repository.Repository) (<-chan *re
 	}()
 
 	return out, errfound
+}
+
+// needs the index loaded
+func countFiles(ctx context.Context, repo *repository.Repository, snapID string) (uint64, error) {
+	fcount := uint64(0)
+
+	sid, err := restic.ParseID(snapID)
+	if err != nil {
+		return fcount, err
+	}
+
+	sn, err := restic.LoadSnapshot(ctx, repo, sid)
+	if err != nil {
+		return fcount, err
+	}
+
+	err = walker.Walk(ctx, repo, *sn.Tree, nil, func(_ restic.ID, nodepath string, node *restic.Node, err error) (bool, error) {
+		if err != nil {
+			return false, err
+		}
+
+		if node == nil {
+			return false, nil
+		}
+
+		if node.Type == "file" {
+			fcount++
+		}
+
+		return false, nil
+	})
+
+	return fcount, nil
 }

@@ -14,10 +14,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 	lopt "github.com/syndtr/goleveldb/leveldb/opt"
-	"github.com/vmihailenco/msgpack/v5"
 )
-
-const maxPaths = 10
 
 var ErrIndexClosed = errors.New("index closed")
 
@@ -34,7 +31,7 @@ type BlugeIndex struct {
 	closed      bool
 	once        sync.Once
 	writer      *index.Writer
-	idBuf       map[string][]string
+	idBuf       map[string]string
 	idCache     *leveldb.DB
 	m           sync.Mutex
 	indexing    bool
@@ -54,7 +51,7 @@ func NewBlugeIndex(indexPath string, batchSize uint) *BlugeIndex {
 	idx.wg = &sync.WaitGroup{}
 	idx.indexed = make(chan *IndexedDocument)
 	idx.closed = false
-	idx.idBuf = map[string][]string{}
+	idx.idBuf = map[string]string{}
 
 	return idx
 }
@@ -174,38 +171,25 @@ func (i *BlugeIndex) writeBatch() error {
 		return err
 	}
 
-	for k, v := range i.idBuf {
-		present, err := i.idCache.Has([]byte(k), nil)
-		if err != nil {
-			panic(err)
-		}
-		if present {
-			err = i.addPathsToID(k, v)
-		} else {
-			err = i.writeFileID(k, v)
-		}
+	for fileID, path := range i.idBuf {
+		err = i.idCache.Put([]byte(fileID), []byte(path), nil)
 		if err != nil {
 			panic(err)
 		}
 	}
 
-	i.idBuf = map[string][]string{}
+	i.idBuf = map[string]string{}
 	i.docsBatched = 0
 	i.batch.Reset()
 
 	return nil
 }
 
-func (i *BlugeIndex) BatchedPathsFor(fileID string) ([]string, error) {
-	paths, err := i.PathsFor(fileID)
-	if err != nil && err != leveldb.ErrNotFound {
-		return paths, err
+func (i *BlugeIndex) Has(fileID string) (bool, error) {
+	if _, ok := i.idBuf[fileID]; ok {
+		return true, nil
 	}
 
-	return append(paths, i.idBuf[fileID]...), nil
-}
-
-func (i *BlugeIndex) Has(fileID string) (bool, error) {
 	var err error
 	i.idCache, err = i.openIDDB()
 	if err != nil {
@@ -216,62 +200,11 @@ func (i *BlugeIndex) Has(fileID string) (bool, error) {
 	return i.idCache.Has([]byte(fileID), nil)
 }
 
-func (i *BlugeIndex) PathsFor(fileID string) ([]string, error) {
-	var err error
-	i.idCache, err = i.openIDDB()
-	if err != nil {
-		panic(err)
-	}
-	defer i.safeIDDBClose()
-
-	return i.unmarshalPaths(fileID)
-}
-
-func (i *BlugeIndex) addPathsToID(fileID string, paths []string) error {
-	spaths, err := i.unmarshalPaths(fileID)
-	if err != nil {
-		return err
-	}
-
-	for _, path := range paths {
-		if len(spaths) < maxPaths {
-			spaths = append(spaths, path)
-		}
-	}
-
-	return i.writeFileID(fileID, spaths)
-}
-
-func (i *BlugeIndex) writeFileID(fileID string, paths []string) error {
-	bpaths, err := msgpack.Marshal(paths)
-	if err != nil {
-		return err
-	}
-	err = i.idCache.Put([]byte(fileID), bpaths, nil)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (i *BlugeIndex) unmarshalPaths(fileID string) ([]string, error) {
-	var paths []string
-	bpaths, err := i.idCache.Get([]byte(fileID), nil)
-	if err != nil {
-		return paths, err
-	}
-	err = msgpack.Unmarshal(bpaths, &paths)
-	return paths, err
-}
-
 func (i *BlugeIndex) writeDoc(doc *IndexedDocument) error {
 	var err error
 	fid := string(doc.Document.ID().Term())
 
-	if len(i.idBuf[fid]) < maxPaths {
-		i.idBuf[fid] = append(i.idBuf[fid], doc.Path)
-	}
+	i.idBuf[fid] = doc.Path
 	i.batch.Update(doc.Document.ID(), doc.Document)
 	i.docsBatched++
 	if i.docsBatched >= int64(i.BatchSize) {
@@ -299,7 +232,7 @@ func defaultConf(path string) *index.Config {
 	//indexConfig = indexConfig.WithUnsafeBatches()
 
 	// helps with file descriptor and memory usage
-	indexConfig = indexConfig.WithPersisterNapTimeMSec(100)
+	indexConfig = indexConfig.WithPersisterNapTimeMSec(300)
 
 	// Also from https://github.com/blevesearch/bleve/issues/1266
 	// indexConfig.PersisterNapUnderNumFiles = 0

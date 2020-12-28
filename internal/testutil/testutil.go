@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 )
 
-const REPO_PATH = "tmp-repo"
+const REPO_PATH = "test-repos/tmp-repo"
 const REPO_PASS = "test"
 
 func IndexPath() string {
@@ -19,19 +19,44 @@ func IndexPath() string {
 	return filepath.Join(dir, "test.idx")
 }
 
+func RandomRepoURI() string {
+	dir, err := ioutil.TempDir("test-repos", "repo-*")
+	if err != nil {
+		panic(err)
+	}
+
+	return dir
+}
+
 func SetupEnv() {
 	os.Setenv("RESTIC_REPOSITORY", REPO_PATH)
 	os.Setenv("RESTIC_PASSWORD", REPO_PASS)
 }
 
-func SetupRepo() {
+func ResetEnv() {
 	SetupEnv()
+}
+
+func CreateSnapshot() {
+	cmd := exec.Command("restic", "backup", "testdata")
+	if err := cmd.Run(); err != nil {
+		panic(err)
+	}
+}
+
+func RepoURI() string {
+	return os.Getenv("RESTIC_REPOSITORY")
+}
+
+func SetupNewRepo() {
+	if RepoURI() == "" {
+		panic("invalid repo")
+	}
+
+	os.RemoveAll(RepoURI())
 
 	for _, p := range []string{"blugeindex/tmp", "tmp"} {
-		cmd := exec.Command("rm", "-rf", p)
-		if err := cmd.Run(); err != nil {
-			panic(err)
-		}
+		os.RemoveAll(p)
 	}
 
 	err := os.MkdirAll("tmp", 0755)
@@ -39,7 +64,7 @@ func SetupRepo() {
 		panic(err)
 	}
 
-	if _, err := os.Stat(REPO_PATH); err == nil {
+	if _, err := os.Stat(RepoURI()); err == nil {
 		return
 	}
 
@@ -52,4 +77,9 @@ func SetupRepo() {
 	if err := cmd.Run(); err != nil {
 		panic(err)
 	}
+}
+
+func SetupRepo() {
+	SetupEnv()
+	SetupNewRepo()
 }

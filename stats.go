@@ -24,11 +24,17 @@ type IndexStats struct {
 	// Snapshots that will be scanned
 	MissingSnapshots uint64
 
+	// List of files in every snapshot
+	SnapshotFiles map[string]uint64
+
+	CurrentSnapshotFiles      uint64
+	CurrentSnapshotTotalFiles uint64
+
 	m *sync.Mutex
 }
 
 func NewStats() IndexStats {
-	return IndexStats{Errors: []error{}, m: &sync.Mutex{}}
+	return IndexStats{Errors: []error{}, SnapshotFiles: map[string]uint64{}, m: &sync.Mutex{}}
 }
 
 func (s *IndexStats) ErrorsAdd(err error) {
@@ -76,5 +82,23 @@ func (s *IndexStats) AlreadyIndexedInc() {
 func (s *IndexStats) SetMissingSnapshots(count uint64) {
 	s.m.Lock()
 	s.MissingSnapshots = count
+	s.m.Unlock()
+}
+
+func (s *IndexStats) SetSnapshotFiles(id string, count uint64) {
+	s.m.Lock()
+	s.SnapshotFiles[id] = count
+	s.m.Unlock()
+}
+
+func (s *IndexStats) SetCurrentSnapshotTotalFiles(count uint64) {
+	s.m.Lock()
+	s.CurrentSnapshotTotalFiles = count
+	s.m.Unlock()
+}
+
+func (s *IndexStats) CurrentSnapshotFilesInc() {
+	s.m.Lock()
+	s.CurrentSnapshotFiles++
 	s.m.Unlock()
 }
