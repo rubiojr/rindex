@@ -232,10 +232,10 @@ func defaultConf(path string) *index.Config {
 	//indexConfig = indexConfig.WithUnsafeBatches()
 
 	// helps with file descriptor and memory usage
-	indexConfig = indexConfig.WithPersisterNapTimeMSec(300)
+	indexConfig = indexConfig.WithPersisterNapTimeMSec(50)
 
 	// Also from https://github.com/blevesearch/bleve/issues/1266
-	// indexConfig.PersisterNapUnderNumFiles = 0
+	indexConfig.PersisterNapUnderNumFiles = 300
 
 	return &indexConfig
 }
@@ -252,7 +252,7 @@ func (i *BlugeIndex) openIDDB() (*leveldb.DB, error) {
 		NoSync:      true,
 		Compression: opt.NoCompression,
 		// https://github.com/syndtr/goleveldb/issues/212
-		OpenFilesCacheCapacity: 50,
+		OpenFilesCacheCapacity: 100,
 		// CompactionTableSizeMultiplier: 2,
 	}
 	return leveldb.OpenFile(filepath.Join(i.IndexPath, "id.db"), o)
