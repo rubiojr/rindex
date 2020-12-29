@@ -12,7 +12,6 @@ import (
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/analysis"
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"github.com/rubiojr/rapi"
 	"github.com/rubiojr/rapi/repository"
 	"github.com/rubiojr/rapi/restic"
@@ -23,6 +22,8 @@ import (
 	lopt "github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/vmihailenco/msgpack/v5"
 )
+
+var log = zerolog.New(os.Stderr).With().Timestamp().Logger()
 
 // IndexOptions to be passed to Index
 type IndexOptions struct {
@@ -81,9 +82,9 @@ func New(indexPath string, repo, pass string) (Indexer, error) {
 	indexer.RepositoryPassword = pass
 
 	if os.Getenv("RINDEX_DEBUG") == "1" {
-		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+		log = log.Level(zerolog.DebugLevel)
 	} else {
-		zerolog.SetGlobalLevel(zerolog.InfoLevel)
+		log = log.Level(zerolog.InfoLevel)
 	}
 
 	return indexer, nil
