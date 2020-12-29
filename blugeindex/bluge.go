@@ -10,7 +10,7 @@ import (
 	"github.com/blugelabs/bluge/index"
 	"github.com/blugelabs/bluge/search"
 	"github.com/blugelabs/bluge/search/similarity"
-	qs "github.com/blugelabs/query_string"
+	"github.com/rubiojr/rindex/internal/qs"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 	lopt "github.com/syndtr/goleveldb/leveldb/opt"
