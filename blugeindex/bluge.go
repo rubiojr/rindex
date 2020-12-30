@@ -154,6 +154,9 @@ func (i *BlugeIndex) Search(q string, fn func(search.DocumentMatchIterator) erro
 	defer reader.Close()
 
 	iter, err := reader.Search(context.Background(), request)
+	if err != nil {
+		return err
+	}
 
 	return fn(iter)
 }

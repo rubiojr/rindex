@@ -2,6 +2,7 @@ package blugeindex
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/blugelabs/bluge"
@@ -101,4 +102,30 @@ func TestBlugeSearch(t *testing.T) {
 		t.Fatal(err)
 	}
 	i.Close()
+}
+
+func TestFuzziness(t *testing.T) {
+	os.MkdirAll("tmp", 0755)
+
+	i := NewBlugeIndex(testutil.IndexPath(), 0)
+	doc := bluge.NewDocument("1").
+		AddField(bluge.NewTextField("filename", "test").StoreValue().HighlightMatches()).
+		AddField(bluge.NewCompositeFieldExcluding("_all", nil))
+
+	i.Index(doc, "test")
+
+	err := i.Search("tes~3", func(iter search.DocumentMatchIterator) error {
+		match, err := iter.Next()
+		if err != nil {
+			t.Error(err)
+		}
+		if match == nil {
+			t.Error("should find a match")
+		}
+
+		return nil
+	})
+	if err == nil || !strings.HasPrefix(err.Error(), "fuzziness exceeds max") {
+		t.Fatalf("error searching: %+v", err)
+	}
 }
