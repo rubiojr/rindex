@@ -39,6 +39,10 @@ func TestSearch(t *testing.T) {
 
 	// search without indexing first, to make sure the engine has been initialized
 	idx, err = New(path, os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	count, err = idx.Search("bhash:320b5d12843eb4a96a283a1df0a011f532dd00c921913f9e64ff25477ba1af13", nil, nil)
 	if err != nil {
 		t.Error(err)

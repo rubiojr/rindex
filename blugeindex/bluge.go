@@ -14,7 +14,6 @@ import (
 	"github.com/rubiojr/rindex/internal/qs"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
-	lopt "github.com/syndtr/goleveldb/leveldb/opt"
 )
 
 type BlugeIndex struct {
@@ -243,7 +242,7 @@ func defaultConf(path string) *index.Config {
 }
 
 func (i *BlugeIndex) openIDDB() (*leveldb.DB, error) {
-	o := &lopt.Options{
+	o := &opt.Options{
 		NoSync:      true,
 		Compression: opt.NoCompression,
 		// https://github.com/syndtr/goleveldb/issues/212
