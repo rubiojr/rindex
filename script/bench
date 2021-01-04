@@ -10,7 +10,7 @@ cleanup() {
 }
 
 count=5
-tname='^BenchmarkIndexBatch100$'
+tname='^BenchmarkIndexBatch'
 
 trap cleanup EXIT
 
