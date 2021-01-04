@@ -238,7 +238,7 @@ func defaultConf(path string) *index.Config {
 	indexConfig = indexConfig.WithPersisterNapTimeMSec(50)
 
 	// Also from https://github.com/blevesearch/bleve/issues/1266
-	indexConfig.PersisterNapUnderNumFiles = 300
+	indexConfig.PersisterNapUnderNumFiles = 500
 
 	return &indexConfig
 }
