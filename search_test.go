@@ -10,7 +10,8 @@ import (
 
 func TestSearch(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	path := testutil.IndexPath()
+	idx, err := New(path, os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,6 +28,17 @@ func TestSearch(t *testing.T) {
 		t.Errorf("should return one results, got %d", count)
 	}
 
+	count, err = idx.Search("bhash:320b5d12843eb4a96a283a1df0a011f532dd00c921913f9e64ff25477ba1af13", nil, nil)
+	if err != nil {
+		t.Error(err)
+	}
+	if count != 1 {
+		t.Errorf("should return two results, got %d", count)
+	}
+	idx.Close()
+
+	// search without indexing first, to make sure the engine has been initialized
+	idx, err = New(path, os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	count, err = idx.Search("bhash:320b5d12843eb4a96a283a1df0a011f532dd00c921913f9e64ff25477ba1af13", nil, nil)
 	if err != nil {
 		t.Error(err)

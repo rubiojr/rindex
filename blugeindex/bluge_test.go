@@ -13,7 +13,10 @@ import (
 func TestIndex(t *testing.T) {
 	os.MkdirAll("tmp", 0755)
 
-	i := NewBlugeIndex(testutil.IndexPath(), 0)
+	i, err := NewBlugeIndex(testutil.IndexPath(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	doc := bluge.NewDocument("1").
 		AddField(bluge.NewTextField("filename", string("test")).StoreValue().HighlightMatches())
 
@@ -49,10 +52,25 @@ func TestIndex(t *testing.T) {
 	}
 }
 
+// func TestNewDirty(t *testing.T) {
+// 	_, err := NewBlugeIndex(testutil.IndexPath(), 0)
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+
+// 	_, err = NewBlugeIndex(testutil.IndexPath(), 0)
+// 	if !errors.Is(err, ErrLevelDBOpen) {
+// 		t.Fatal(err)
+// 	}
+// }
+
 func TestIndexWithBuffer(t *testing.T) {
 	os.MkdirAll("tmp", 0755)
 
-	i := NewBlugeIndex(testutil.IndexPath(), 0)
+	i, err := NewBlugeIndex(testutil.IndexPath(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ch := make(chan Indexable, 10)
 	ich := i.Index(ch)
 
@@ -78,7 +96,10 @@ func TestIndexWithBuffer(t *testing.T) {
 func TestIndexBatched(t *testing.T) {
 	os.MkdirAll("tmp", 0755)
 
-	i := NewBlugeIndex(testutil.IndexPath(), 10)
+	i, err := NewBlugeIndex(testutil.IndexPath(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	doc := bluge.NewDocument("1").
 		AddField(bluge.NewTextField("filename", string("test")).StoreValue().HighlightMatches())
 
@@ -117,7 +138,10 @@ func TestIndexBatched(t *testing.T) {
 func TestIndexBatchedBuffered(t *testing.T) {
 	os.MkdirAll("tmp", 0755)
 
-	i := NewBlugeIndex(testutil.IndexPath(), 10)
+	i, err := NewBlugeIndex(testutil.IndexPath(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
 	doc := bluge.NewDocument("1").
 		AddField(bluge.NewTextField("filename", string("test")).StoreValue().HighlightMatches())
 
@@ -155,7 +179,10 @@ func TestIndexBatchedBuffered(t *testing.T) {
 func TestBlugeSearch(t *testing.T) {
 	os.MkdirAll("tmp", 0755)
 
-	i := NewBlugeIndex(testutil.IndexPath(), 0)
+	i, err := NewBlugeIndex(testutil.IndexPath(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	doc := bluge.NewDocument("1").
 		AddField(bluge.NewTextField("filename", "test").StoreValue().HighlightMatches()).
 		AddField(bluge.NewCompositeFieldExcluding("_all", nil))
@@ -167,7 +194,7 @@ func TestBlugeSearch(t *testing.T) {
 	for range ich {
 	}
 
-	err := i.Search("filename:test", func(iter search.DocumentMatchIterator) error {
+	err = i.Search("filename:test", func(iter search.DocumentMatchIterator) error {
 		match, err := iter.Next()
 		if err != nil {
 			t.Error(err)
@@ -186,7 +213,11 @@ func TestBlugeSearch(t *testing.T) {
 func TestFuzziness(t *testing.T) {
 	os.MkdirAll("tmp", 0755)
 
-	i := NewBlugeIndex(testutil.IndexPath(), 0)
+	i, err := NewBlugeIndex(testutil.IndexPath(), 0)
+	if err != nil {
+		t.Fatal()
+	}
+
 	doc := bluge.NewDocument("1").
 		AddField(bluge.NewTextField("filename", "test").StoreValue().HighlightMatches()).
 		AddField(bluge.NewCompositeFieldExcluding("_all", nil))
@@ -198,7 +229,7 @@ func TestFuzziness(t *testing.T) {
 	for range ich {
 	}
 
-	err := i.Search("tes~3", func(iter search.DocumentMatchIterator) error {
+	err = i.Search("tes~3", func(iter search.DocumentMatchIterator) error {
 		match, err := iter.Next()
 		if err != nil {
 			t.Error(err)

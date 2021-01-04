@@ -171,7 +171,12 @@ func TestIndexWithEngine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	idx.IndexEngine = blugeindex.NewBlugeIndex("tmp/test2.idx", 10)
+
+	idx.IndexEngine, err = blugeindex.NewBlugeIndex("tmp/test2.idx", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	opts := DefaultIndexOptions
 	stats, err := idx.Index(context.Background(), opts, progress)
 	if err != nil {

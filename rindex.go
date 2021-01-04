@@ -26,6 +26,8 @@ import (
 
 var log = zerolog.New(os.Stderr).With().Timestamp().Logger()
 
+var lc sync.Mutex
+
 // IndexOptions to be passed to Index
 type IndexOptions struct {
 	// The Filter decides if the file is indexed or not
@@ -69,6 +71,35 @@ var DefaultIndexOptions = IndexOptions{
 	filenameAnalyzer: blugeindex.NewFilenameAnalyzer(),
 }
 
+func NewOffline(indexPath string, repo, pass string) (Indexer, error) {
+	indexer := Indexer{}
+	if indexPath == "" {
+		return indexer, errors.New("index path can't be empty")
+	}
+
+	indexer.IndexPath = indexPath
+	indexer.RepositoryLocation = repo
+	indexer.RepositoryPassword = pass
+
+	if !indexer.readyForSearch() {
+		return indexer, ErrSearchNotReady
+	}
+
+	var err error
+	indexer.IndexEngine, err = blugeindex.OfflineIndex(indexPath, 0)
+	if err != nil {
+		return indexer, err
+	}
+
+	if os.Getenv("RINDEX_DEBUG") == "1" {
+		log = log.Level(zerolog.DebugLevel)
+	} else {
+		log = log.Level(zerolog.InfoLevel)
+	}
+
+	return indexer, err
+}
+
 // New creates a new Indexer.
 // indexPath is the path to the directory that will contain the index files.
 func New(indexPath string, repo, pass string) (Indexer, error) {
@@ -80,6 +111,11 @@ func New(indexPath string, repo, pass string) (Indexer, error) {
 	indexer.IndexPath = indexPath
 	indexer.RepositoryLocation = repo
 	indexer.RepositoryPassword = pass
+	var err error
+	indexer.IndexEngine, err = blugeindex.NewBlugeIndex(indexPath, 0)
+	if err != nil {
+		return indexer, err
+	}
 
 	if os.Getenv("RINDEX_DEBUG") == "1" {
 		log = log.Level(zerolog.DebugLevel)
@@ -87,7 +123,8 @@ func New(indexPath string, repo, pass string) (Indexer, error) {
 		log = log.Level(zerolog.InfoLevel)
 	}
 
-	return indexer, nil
+	err = indexer.initCaches()
+	return indexer, err
 }
 
 // Index will start indexing the repository.
@@ -108,16 +145,9 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 		opts.filenameAnalyzer = blugeindex.NewFilenameAnalyzer()
 	}
 
-	i.IndexEngine = blugeindex.NewBlugeIndex(i.IndexPath, opts.BatchSize)
-	defer i.IndexEngine.Close()
+	i.IndexEngine.SetBatchSize(opts.BatchSize)
 
 	stats := NewStats()
-
-	err = i.initCaches()
-	if err != nil {
-		return stats, err
-	}
-	defer i.close()
 
 	ropts := rapi.DefaultOptions
 	ropts.Password = i.RepositoryPassword
@@ -170,13 +200,29 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 			stats.SetCurrentSnapshotTotalFiles(c)
 		}()
 
-		if _, err := i.snapCache.Get(snap.ID()[:], nil); err == nil && !opts.Reindex {
+		needsIndexing := true
+		err = i.inCache(func(cache *leveldb.DB) error {
+			if _, err := cache.Get(snap.ID()[:], nil); err == nil && !opts.Reindex {
+				needsIndexing = false
+			}
+
+			return err
+		})
+
+		if err != nil {
+			stats.ErrorsAdd(err)
+		}
+
+		if !needsIndexing {
 			return nil
 		}
 
 		stats.ScannedSnapshotsInc()
 		i.walkSnapshot(ctx, repo, snap, &stats, opts, progress, ichan)
-		err = i.snapCache.Put(snap.ID()[:], []byte{}, nil)
+
+		err = i.inCache(func(cache *leveldb.DB) error {
+			return cache.Put(snap.ID()[:], []byte{}, nil)
+		})
 		if err != nil {
 			stats.ErrorsAdd(err)
 		}
@@ -198,12 +244,6 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 func (i *Indexer) MissingSnapshots(ctx context.Context) ([]string, error) {
 	missing := []string{}
 
-	err := i.initCaches()
-	if err != nil {
-		return missing, err
-	}
-	defer i.snapCache.Close()
-
 	ropts := rapi.DefaultOptions
 	ropts.Password = i.RepositoryPassword
 	ropts.Repo = i.RepositoryLocation
@@ -221,12 +261,17 @@ func (i Indexer) listMissingSnapshots(ctx context.Context, repo *repository.Repo
 	if err != nil {
 		return missing, err
 	}
-	for snap := range snaps {
-		if _, err := i.snapCache.Get(snap.ID()[:], nil); err == nil {
-			continue
+
+	err = i.inCache(func(cache *leveldb.DB) error {
+		for snap := range snaps {
+			if _, err := cache.Get(snap.ID()[:], nil); err == nil {
+				continue
+			}
+			missing = append(missing, snap.ID().String())
 		}
-		missing = append(missing, snap.ID().String())
-	}
+
+		return nil
+	})
 
 	return missing, err
 }
@@ -236,9 +281,16 @@ func (i *Indexer) initCaches() error {
 
 	indexDir := filepath.Dir(i.IndexPath)
 	cacheDir := filepath.Join(indexDir, "cache")
-	snapCache := filepath.Join(cacheDir, "snap.cache")
 
 	os.MkdirAll(cacheDir, 0755)
+
+	return err
+}
+
+func (i *Indexer) openSnapCache() (*leveldb.DB, error) {
+	indexDir := filepath.Dir(i.IndexPath)
+	cacheDir := filepath.Join(indexDir, "cache")
+	snapCache := filepath.Join(cacheDir, "snap.cache")
 
 	o := &lopt.Options{
 		NoSync:      true,
@@ -248,9 +300,7 @@ func (i *Indexer) initCaches() error {
 		// CompactionTableSizeMultiplier: 2,
 	}
 
-	i.snapCache, err = leveldb.OpenFile(snapCache, o)
-
-	return err
+	return leveldb.OpenFile(snapCache, o)
 }
 
 func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts IndexOptions, node *restic.Node, nodepath string, host string, stats *IndexStats, ichan chan blugeindex.Indexable) {
@@ -306,11 +356,8 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 	ichan <- blugeindex.Indexable{Document: doc, Path: nodepath}
 }
 
-func (i *Indexer) close() {
-	err := i.snapCache.Close()
-	if err != nil {
-		panic(err)
-	}
+func (i *Indexer) Close() {
+	i.IndexEngine.Close()
 }
 
 func (i *Indexer) walkSnapshot(ctx context.Context, repo *repository.Repository, sn *restic.Snapshot, stats *IndexStats, opts IndexOptions, progress chan IndexStats, ichan chan blugeindex.Indexable) error {
@@ -332,6 +379,20 @@ func (i *Indexer) walkSnapshot(ctx context.Context, repo *repository.Repository,
 		return true, nil
 	})
 
+}
+
+func (i *Indexer) inCache(fn func(cache *leveldb.DB) error) error {
+	var err error
+
+	lc.Lock()
+	defer lc.Unlock()
+
+	i.snapCache, err = i.openSnapCache()
+	if err != nil {
+		return err
+	}
+	defer i.snapCache.Close()
+	return fn(i.snapCache)
 }
 
 func hashBlobs(node *restic.Node) string {

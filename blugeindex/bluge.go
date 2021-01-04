@@ -3,6 +3,7 @@ package blugeindex
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 
@@ -27,6 +28,7 @@ type BlugeIndex struct {
 	idCache     *leveldb.DB
 	m           sync.Mutex
 	indexing    bool
+	offline     bool
 }
 
 type IndexedDocument struct {
@@ -35,17 +37,37 @@ type IndexedDocument struct {
 	Error    error
 }
 
-func NewBlugeIndex(indexPath string, batchSize uint) *BlugeIndex {
+var ErrInvalidIndexPath = errors.New("invalid index path")
+var ErrLevelDBOpen = errors.New("failed to open the ID database")
+var ErrOfflineIndex = errors.New("offline indexer, operation not supported")
+
+// Can be used from a different process
+func OfflineIndex(indexPath string, batchSize uint) (*BlugeIndex, error) {
+	if indexPath == "" {
+		panic(fmt.Errorf("%w: path '%s'", ErrInvalidIndexPath, indexPath))
+	}
+
+	idx := &BlugeIndex{conf: defaultConf(indexPath), IndexPath: indexPath, BatchSize: batchSize}
+	idx.offline = true
+
+	return idx, nil
+}
+
+func NewBlugeIndex(indexPath string, batchSize uint) (*BlugeIndex, error) {
+	if indexPath == "" {
+		panic(fmt.Errorf("%w: path '%s'", ErrInvalidIndexPath, indexPath))
+	}
+
 	idx := &BlugeIndex{conf: defaultConf(indexPath), IndexPath: indexPath, BatchSize: batchSize}
 	idx.batch = bluge.NewBatch()
 	idx.idBuf = map[string]string{}
 	var err error
 	idx.idCache, err = idx.openIDDB()
 	if err != nil {
-		panic(err)
+		return nil, fmt.Errorf("%w: %v", ErrLevelDBOpen, err)
 	}
 
-	return idx
+	return idx, nil
 }
 
 func (i *BlugeIndex) SetBatchSize(size uint) {
@@ -63,6 +85,10 @@ type DocumentIndexed struct {
 }
 
 func (i *BlugeIndex) Index(docs chan Indexable) chan DocumentIndexed {
+	if i.offline {
+		panic(ErrOfflineIndex)
+	}
+
 	ch := make(chan DocumentIndexed)
 
 	go func() {
@@ -132,6 +158,10 @@ func (i *BlugeIndex) Search(q string, fn func(search.DocumentMatchIterator) erro
 }
 
 func (i *BlugeIndex) Close() {
+	if i.offline {
+		panic(ErrOfflineIndex)
+	}
+
 	i.idCache.Close()
 }
 
@@ -156,6 +186,10 @@ func (i *BlugeIndex) writeBatch() error {
 }
 
 func (i *BlugeIndex) Has(fileID string) (bool, error) {
+	if i.offline {
+		panic(ErrOfflineIndex)
+	}
+
 	i.m.Lock()
 	defer i.m.Unlock()
 
@@ -209,10 +243,6 @@ func defaultConf(path string) *index.Config {
 }
 
 func (i *BlugeIndex) openIDDB() (*leveldb.DB, error) {
-	if i.idCache != nil {
-		return i.idCache, nil
-	}
-
 	o := &lopt.Options{
 		NoSync:      true,
 		Compression: opt.NoCompression,
@@ -221,9 +251,4 @@ func (i *BlugeIndex) openIDDB() (*leveldb.DB, error) {
 		// CompactionTableSizeMultiplier: 2,
 	}
 	return leveldb.OpenFile(filepath.Join(i.IndexPath, "id.db"), o)
-}
-
-func (i *BlugeIndex) safeIDDBClose() {
-	i.idCache.Close()
-	i.idCache = nil
 }
