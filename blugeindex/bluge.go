@@ -16,8 +16,6 @@ import (
 	lopt "github.com/syndtr/goleveldb/leveldb/opt"
 )
 
-var ErrIndexClosed = errors.New("index closed")
-
 type BlugeIndex struct {
 	IndexPath   string
 	BatchSize   uint
