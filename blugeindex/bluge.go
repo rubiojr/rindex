@@ -24,12 +24,6 @@ type BlugeIndex struct {
 	conf        *index.Config
 	docsBatched int64
 	batch       *index.Batch
-	queue       chan *IndexedDocument
-	done        chan bool
-	indexed     chan *IndexedDocument
-	wg          *sync.WaitGroup
-	closed      bool
-	once        sync.Once
 	writer      *index.Writer
 	idBuf       map[string]string
 	idCache     *leveldb.DB
@@ -46,11 +40,6 @@ type IndexedDocument struct {
 func NewBlugeIndex(indexPath string, batchSize uint) *BlugeIndex {
 	idx := &BlugeIndex{conf: defaultConf(indexPath), IndexPath: indexPath, BatchSize: batchSize}
 	idx.batch = bluge.NewBatch()
-	idx.queue = make(chan *IndexedDocument)
-	idx.done = make(chan bool)
-	idx.wg = &sync.WaitGroup{}
-	idx.indexed = make(chan *IndexedDocument)
-	idx.closed = false
 	idx.idBuf = map[string]string{}
 	var err error
 	idx.idCache, err = idx.openIDDB()
