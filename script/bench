@@ -10,9 +10,9 @@ cleanup() {
 }
 
 count=5
-tname='^BenchmarkIndexBatch'
+tname='^BenchmarkIndexBatch100'
 
-trap cleanup EXIT
+#trap cleanup EXIT
 
 if ! go test -benchmem -run=XXX -bench "$tname" -count $count > new; then
   cat new
