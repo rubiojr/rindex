@@ -52,6 +52,11 @@ func NewBlugeIndex(indexPath string, batchSize uint) *BlugeIndex {
 	idx.indexed = make(chan *IndexedDocument)
 	idx.closed = false
 	idx.idBuf = map[string]string{}
+	var err error
+	idx.idCache, err = idx.openIDDB()
+	if err != nil {
+		panic(err)
+	}
 
 	return idx
 }
@@ -60,62 +65,40 @@ func (i *BlugeIndex) SetBatchSize(size uint) {
 	i.BatchSize = size
 }
 
-func (i *BlugeIndex) Index(doc *bluge.Document, path string) error {
-	i.once.Do(func() {
-		go func() {
-			i.m.Lock()
-			i.indexing = true
-			i.m.Unlock()
+type Indexable struct {
+	Document *bluge.Document
+	Path     string
+}
 
-			var err error
-			i.idCache, err = i.openIDDB()
-			if err != nil {
-				panic(err)
-			}
+type DocumentIndexed struct {
+	Document *bluge.Document
+	Error    error
+}
 
-			defer func() {
-				i.m.Lock()
-				i.indexing = false
-				i.m.Unlock()
-				i.safeIDDBClose()
-			}()
+func (i *BlugeIndex) Index(docs chan Indexable) chan DocumentIndexed {
+	ch := make(chan DocumentIndexed)
 
-			i.writer, err = index.OpenWriter(*i.conf)
-			if err != nil {
-				panic(err)
-			}
+	go func() {
+		if i.indexing {
+			ch <- DocumentIndexed{Document: nil, Error: errors.New("indexing in progress")}
+		}
 
-			defer i.writer.Close()
-			for {
-				select {
-				case doc := <-i.queue:
-					err := i.writeDoc(doc)
-					doc.Error = err
-					// FIXME: we need proper error handling
-					if err != nil {
-						panic(err)
-					}
-					i.indexed <- doc
-					i.wg.Done()
-				case <-i.done:
-					i.closed = true
-					return
-				default:
-				}
-			}
-		}()
-	})
+		var err error
+		i.writer, err = index.OpenWriter(*i.conf)
+		if err != nil {
+			ch <- DocumentIndexed{Document: nil, Error: err}
+		}
 
-	if i.closed {
-		return ErrIndexClosed
-	}
+		for doc := range docs {
+			err := i.writeDoc(&doc)
+			ch <- DocumentIndexed{Document: doc.Document, Error: err}
+		}
+		i.writeBatch()
+		i.writer.Close()
+		close(ch)
+	}()
 
-	i.wg.Add(1)
-	i.queue <- &IndexedDocument{Document: doc, Path: path}
-
-	di := <-i.indexed
-
-	return di.Error
+	return ch
 }
 
 func (i *BlugeIndex) Count() (uint64, error) {
@@ -162,10 +145,7 @@ func (i *BlugeIndex) Search(q string, fn func(search.DocumentMatchIterator) erro
 }
 
 func (i *BlugeIndex) Close() {
-	i.wg.Wait()
-	i.writeBatch()
-	i.done <- true
-	close(i.done)
+	i.idCache.Close()
 }
 
 func (i *BlugeIndex) writeBatch() error {
@@ -173,6 +153,8 @@ func (i *BlugeIndex) writeBatch() error {
 	if err != nil {
 		return err
 	}
+	i.docsBatched = 0
+	i.batch.Reset()
 
 	for fileID, path := range i.idBuf {
 		err = i.idCache.Put([]byte(fileID), []byte(path), nil)
@@ -182,8 +164,6 @@ func (i *BlugeIndex) writeBatch() error {
 	}
 
 	i.idBuf = map[string]string{}
-	i.docsBatched = 0
-	i.batch.Reset()
 
 	return nil
 }
@@ -193,17 +173,10 @@ func (i *BlugeIndex) Has(fileID string) (bool, error) {
 		return true, nil
 	}
 
-	var err error
-	i.idCache, err = i.openIDDB()
-	if err != nil {
-		panic(err)
-	}
-	defer i.safeIDDBClose()
-
 	return i.idCache.Has([]byte(fileID), nil)
 }
 
-func (i *BlugeIndex) writeDoc(doc *IndexedDocument) error {
+func (i *BlugeIndex) writeDoc(doc *Indexable) error {
 	var err error
 	fid := string(doc.Document.ID().Term())
 
@@ -244,9 +217,6 @@ func defaultConf(path string) *index.Config {
 }
 
 func (i *BlugeIndex) openIDDB() (*leveldb.DB, error) {
-	i.m.Lock()
-	defer i.m.Unlock()
-
 	if i.idCache != nil {
 		return i.idCache, nil
 	}
@@ -262,11 +232,6 @@ func (i *BlugeIndex) openIDDB() (*leveldb.DB, error) {
 }
 
 func (i *BlugeIndex) safeIDDBClose() {
-	i.m.Lock()
-	defer i.m.Unlock()
-
-	if !i.indexing {
-		i.idCache.Close()
-		i.idCache = nil
-	}
+	i.idCache.Close()
+	i.idCache = nil
 }
