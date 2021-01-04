@@ -169,6 +169,9 @@ func (i *BlugeIndex) writeBatch() error {
 }
 
 func (i *BlugeIndex) Has(fileID string) (bool, error) {
+	i.m.Lock()
+	defer i.m.Unlock()
+
 	if _, ok := i.idBuf[fileID]; ok {
 		return true, nil
 	}
@@ -180,6 +183,8 @@ func (i *BlugeIndex) writeDoc(doc *Indexable) error {
 	var err error
 	fid := string(doc.Document.ID().Term())
 
+	i.m.Lock()
+	defer i.m.Unlock()
 	i.idBuf[fid] = doc.Path
 	i.batch.Update(doc.Document.ID(), doc.Document)
 	i.docsBatched++
