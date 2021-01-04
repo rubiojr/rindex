@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/blugelabs/bluge"
 	"github.com/blugelabs/bluge/analysis"
@@ -76,7 +77,6 @@ func New(indexPath string, repo, pass string) (Indexer, error) {
 		return indexer, errors.New("index path can't be empty")
 	}
 
-	indexer.IndexEngine = blugeindex.NewBlugeIndex(indexPath, 1)
 	indexer.IndexPath = indexPath
 	indexer.RepositoryLocation = repo
 	indexer.RepositoryPassword = pass
@@ -108,7 +108,9 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 		opts.filenameAnalyzer = blugeindex.NewFilenameAnalyzer()
 	}
 
-	i.IndexEngine.SetBatchSize(opts.BatchSize)
+	i.IndexEngine = blugeindex.NewBlugeIndex(i.IndexPath, opts.BatchSize)
+	defer i.IndexEngine.Close()
+
 	stats := NewStats()
 
 	err = i.initCaches()
@@ -137,6 +139,20 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 		return stats, err
 	}
 
+	ichan := make(chan blugeindex.Indexable, int(i.IndexEngine.BatchSize))
+	indexed := i.IndexEngine.Index(ichan)
+
+	wg := sync.WaitGroup{}
+	go func() {
+		wg.Add(1)
+		for di := range indexed {
+			if di.Error != nil {
+				stats.ErrorsAdd(err)
+			}
+		}
+		wg.Done()
+	}()
+
 	err = restic.ForAllSnapshots(ctx, repo, nil, func(id restic.ID, snap *restic.Snapshot, err error) error {
 		if err != nil {
 			stats.ErrorsAdd(err)
@@ -159,7 +175,7 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 		}
 
 		stats.ScannedSnapshotsInc()
-		i.walkSnapshot(ctx, repo, snap, &stats, opts, progress)
+		i.walkSnapshot(ctx, repo, snap, &stats, opts, progress, ichan)
 		err = i.snapCache.Put(snap.ID()[:], []byte{}, nil)
 		if err != nil {
 			stats.ErrorsAdd(err)
@@ -171,6 +187,9 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 	if err != nil {
 		stats.ErrorsAdd(err)
 	}
+
+	close(ichan)
+	wg.Wait()
 
 	return stats, nil
 }
@@ -234,7 +253,7 @@ func (i *Indexer) initCaches() error {
 	return err
 }
 
-func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts IndexOptions, node *restic.Node, nodepath string, host string, stats *IndexStats) {
+func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts IndexOptions, node *restic.Node, nodepath string, host string, stats *IndexStats, ichan chan blugeindex.Indexable) {
 	if node == nil {
 		return
 	}
@@ -284,10 +303,7 @@ func (i *Indexer) scanNode(repo *repository.Repository, repoID string, opts Inde
 		AddField(bluge.NewCompositeFieldExcluding("_all", nil))
 
 	log.Debug().Msgf("bhash: %s", bhash)
-	err = i.IndexEngine.Index(doc, nodepath)
-	if err != nil {
-		stats.ErrorsAdd(err)
-	}
+	ichan <- blugeindex.Indexable{Document: doc, Path: nodepath}
 }
 
 func (i *Indexer) close() {
@@ -297,7 +313,7 @@ func (i *Indexer) close() {
 	}
 }
 
-func (i *Indexer) walkSnapshot(ctx context.Context, repo *repository.Repository, sn *restic.Snapshot, stats *IndexStats, opts IndexOptions, progress chan IndexStats) error {
+func (i *Indexer) walkSnapshot(ctx context.Context, repo *repository.Repository, sn *restic.Snapshot, stats *IndexStats, opts IndexOptions, progress chan IndexStats, ichan chan blugeindex.Indexable) error {
 	if sn.Tree == nil {
 		return fmt.Errorf("snapshot %v has no tree", sn.ID().Str())
 	}
@@ -308,7 +324,7 @@ func (i *Indexer) walkSnapshot(ctx context.Context, repo *repository.Repository,
 			return false, walker.ErrSkipNode
 		}
 
-		i.scanNode(repo, repo.Config().ID, opts, node, nodepath, sn.Hostname, stats)
+		i.scanNode(repo, repo.Config().ID, opts, node, nodepath, sn.Hostname, stats, ichan)
 		select {
 		case progress <- *stats:
 		default:

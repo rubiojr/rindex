@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-)
 
-const devIndexPath = "/tmp/rindex-tests/rindex-dev.bluge"
+	"github.com/rubiojr/rindex/internal/testutil"
+)
 
 var devResticPath = filepath.Join(os.Getenv("HOME"), "restic-dev")
 
@@ -17,9 +17,8 @@ const shouldIndex = 93351
 func benchIndex(batchSize uint) error {
 	os.Setenv("RESTIC_REPOSITORY", devResticPath)
 	os.Setenv("RESTIC_PASSWORD", "test")
-	os.RemoveAll("/tmp/rindex-tests")
 
-	idx, err := New(devIndexPath, os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
 	if err != nil {
 		return err
 	}

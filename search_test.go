@@ -36,6 +36,18 @@ func TestSearch(t *testing.T) {
 	}
 }
 
+func TestSearchInvalid(t *testing.T) {
+	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = idx.Search("filename:empty", nil, nil)
+	if err != ErrSearchNotReady {
+		t.Error(err)
+	}
+}
+
 func TestSearchAll(t *testing.T) {
 	// file IDs from the testdata backup
 	idset := []string{
