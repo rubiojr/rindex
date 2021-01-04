@@ -139,7 +139,7 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 		return stats, err
 	}
 
-	ichan := make(chan blugeindex.Indexable, 100)
+	ichan := make(chan blugeindex.Indexable, 1)
 	indexed := i.IndexEngine.Index(ichan)
 
 	wg := sync.WaitGroup{}
