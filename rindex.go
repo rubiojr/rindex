@@ -20,13 +20,10 @@ import (
 	"github.com/rubiojr/rindex/blugeindex"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/opt"
-	lopt "github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
 var log = zerolog.New(os.Stderr).With().Timestamp().Logger()
-
-var lc sync.Mutex
 
 // IndexOptions to be passed to Index
 type IndexOptions struct {
@@ -57,6 +54,7 @@ type Indexer struct {
 	// IndexingEngine being used (Bluge is the only one supported right now)
 	IndexEngine *blugeindex.BlugeIndex
 	snapCache   *leveldb.DB
+	cacheMutex  *sync.Mutex
 }
 
 // DefaultIndexOptions will:
@@ -71,30 +69,39 @@ var DefaultIndexOptions = IndexOptions{
 	filenameAnalyzer: blugeindex.NewFilenameAnalyzer(),
 }
 
-func NewOffline(indexPath string, repo, pass string) (Indexer, error) {
-	indexer := Indexer{}
+func newIndexer(indexPath, repo, pass string) (Indexer, error) {
+	if os.Getenv("RINDEX_DEBUG") == "1" {
+		log = log.Level(zerolog.DebugLevel)
+	} else {
+		log = log.Level(zerolog.InfoLevel)
+	}
+
+	indexer := &Indexer{}
 	if indexPath == "" {
-		return indexer, errors.New("index path can't be empty")
+		return *indexer, errors.New("index path can't be empty")
 	}
 
 	indexer.IndexPath = indexPath
 	indexer.RepositoryLocation = repo
 	indexer.RepositoryPassword = pass
+	indexer.cacheMutex = &sync.Mutex{}
+
+	return *indexer, nil
+}
+
+func NewOffline(indexPath string, repo, pass string) (Indexer, error) {
+	indexer, err := newIndexer(indexPath, repo, pass)
+	if err != nil {
+		return indexer, err
+	}
 
 	if !indexer.readyForSearch() {
 		return indexer, ErrSearchNotReady
 	}
 
-	var err error
 	indexer.IndexEngine, err = blugeindex.OfflineIndex(indexPath, 0)
 	if err != nil {
 		return indexer, err
-	}
-
-	if os.Getenv("RINDEX_DEBUG") == "1" {
-		log = log.Level(zerolog.DebugLevel)
-	} else {
-		log = log.Level(zerolog.InfoLevel)
 	}
 
 	return indexer, err
@@ -103,27 +110,18 @@ func NewOffline(indexPath string, repo, pass string) (Indexer, error) {
 // New creates a new Indexer.
 // indexPath is the path to the directory that will contain the index files.
 func New(indexPath string, repo, pass string) (Indexer, error) {
-	indexer := Indexer{}
-	if indexPath == "" {
-		return indexer, errors.New("index path can't be empty")
+	indexer, err := newIndexer(indexPath, repo, pass)
+	if err != nil {
+		return indexer, err
 	}
 
-	indexer.IndexPath = indexPath
-	indexer.RepositoryLocation = repo
-	indexer.RepositoryPassword = pass
-	var err error
 	indexer.IndexEngine, err = blugeindex.NewBlugeIndex(indexPath, 0)
 	if err != nil {
 		return indexer, err
 	}
 
-	if os.Getenv("RINDEX_DEBUG") == "1" {
-		log = log.Level(zerolog.DebugLevel)
-	} else {
-		log = log.Level(zerolog.InfoLevel)
-	}
-
 	err = indexer.initCaches()
+
 	return indexer, err
 }
 
@@ -173,8 +171,8 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 	indexed := i.IndexEngine.Index(ichan)
 
 	wg := sync.WaitGroup{}
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
 		for di := range indexed {
 			if di.Error != nil {
 				stats.ErrorsAdd(err)
@@ -292,7 +290,7 @@ func (i *Indexer) openSnapCache() (*leveldb.DB, error) {
 	cacheDir := filepath.Join(indexDir, "cache")
 	snapCache := filepath.Join(cacheDir, "snap.cache")
 
-	o := &lopt.Options{
+	o := &opt.Options{
 		NoSync:      true,
 		Compression: opt.NoCompression,
 		// https://github.com/syndtr/goleveldb/issues/212
@@ -384,8 +382,8 @@ func (i *Indexer) walkSnapshot(ctx context.Context, repo *repository.Repository,
 func (i *Indexer) inCache(fn func(cache *leveldb.DB) error) error {
 	var err error
 
-	lc.Lock()
-	defer lc.Unlock()
+	i.cacheMutex.Lock()
+	defer i.cacheMutex.Unlock()
 
 	i.snapCache, err = i.openSnapCache()
 	if err != nil {
@@ -492,5 +490,5 @@ func countFiles(ctx context.Context, repo *repository.Repository, snapID string)
 		return false, nil
 	})
 
-	return fcount, nil
+	return fcount, err
 }
