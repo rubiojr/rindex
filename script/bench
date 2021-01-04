@@ -15,14 +15,14 @@ tname='^BenchmarkIndexBatch100'
 trap cleanup EXIT
 
 if ! go test -benchmem -run=XXX -bench "$tname" -count $count > new; then
-  echo "Failed benchmarks in new branch"
+  echo "Failed benchmarks in new branch" >&2
   cat new
   exit 1
 fi
 
 git checkout master > /dev/null 2>&1
 if ! go test -benchmem -run=XXX -bench "$tname" -count $count > old; then
-  echo "Failed benchmarks in old branch"
+  echo "Failed benchmarks in old branch" >&2
   cat old
   exit 1
 fi
