@@ -95,10 +95,6 @@ func NewOffline(indexPath string, repo, pass string) (Indexer, error) {
 		return indexer, err
 	}
 
-	if !indexer.readyForSearch() {
-		return indexer, ErrSearchNotReady
-	}
-
 	indexer.IndexEngine, err = blugeindex.OfflineIndex(indexPath, 0)
 	if err != nil {
 		return indexer, err
