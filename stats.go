@@ -27,7 +27,9 @@ type IndexStats struct {
 	// List of files in every snapshot
 	SnapshotFiles map[string]uint64
 
-	CurrentSnapshotFiles      uint64
+	// Number of files scanned in the current snapshot
+	CurrentSnapshotFiles uint64
+	// Total number of files in the snapshot being scanned
 	CurrentSnapshotTotalFiles uint64
 
 	m *sync.Mutex
