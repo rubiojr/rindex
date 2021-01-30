@@ -41,12 +41,12 @@ var ErrLevelDBOpen = errors.New("failed to open the ID database")
 var ErrOfflineIndex = errors.New("offline indexer, operation not supported")
 
 // Can be used from a different process
-func OfflineIndex(indexPath string, batchSize uint) (*BlugeIndex, error) {
+func OfflineIndex(indexPath string) (*BlugeIndex, error) {
 	if indexPath == "" {
 		panic(fmt.Errorf("%w: path '%s'", ErrInvalidIndexPath, indexPath))
 	}
 
-	idx := &BlugeIndex{conf: defaultConf(indexPath), IndexPath: indexPath, BatchSize: batchSize}
+	idx := &BlugeIndex{conf: defaultConf(indexPath), IndexPath: indexPath}
 	idx.offline = true
 
 	return idx, nil
