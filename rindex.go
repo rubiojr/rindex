@@ -69,6 +69,11 @@ var DefaultIndexOptions = IndexOptions{
 	filenameAnalyzer: blugeindex.NewFilenameAnalyzer(),
 }
 
+func resetEnv() {
+	os.Setenv("RESTIC_REPOSITORY", "")
+	os.Setenv("RESTIC_PASSWORD", "")
+}
+
 func newIndexer(indexPath, repo, pass string) (Indexer, error) {
 	if os.Getenv("RINDEX_DEBUG") == "1" {
 		log = log.Level(zerolog.DebugLevel)
@@ -143,6 +148,9 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 
 	stats := NewStats()
 
+	// FIXME: RAPI will override repo path/pass with values from the environment
+	// if present. Need to fix this upstream, not a great behaviour for a library.
+	resetEnv()
 	ropts := rapi.DefaultOptions
 	ropts.Password = i.RepositoryPassword
 	ropts.Repo = i.RepositoryLocation
@@ -238,6 +246,9 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 func (i *Indexer) MissingSnapshots(ctx context.Context) ([]string, error) {
 	missing := []string{}
 
+	// FIXME: RAPI will override repo path/pass with values from the environment
+	// if present. Need to fix this upstream, not a great behaviour for a library.
+	resetEnv()
 	ropts := rapi.DefaultOptions
 	ropts.Password = i.RepositoryPassword
 	ropts.Repo = i.RepositoryLocation

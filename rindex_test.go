@@ -17,9 +17,22 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func TestNew(t *testing.T) {
+	// make sure rindex doesn't use restic environment variables
+	os.Setenv("RESTIC_REPOSITORY", "/dev/foorepo")
+	idx, err := New(testutil.IndexPath(), testutil.REPO_PATH, testutil.REPO_PASS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = idx.Index(context.Background(), DefaultIndexOptions, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSetBatchSize(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), testutil.REPO_PATH, testutil.REPO_PASS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +46,7 @@ func TestSetBatchSize(t *testing.T) {
 
 func TestIndexWithPath(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), testutil.REPO_PATH, testutil.REPO_PASS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,11 +110,10 @@ func TestIndexWithPath(t *testing.T) {
 }
 
 func TestReindex(t *testing.T) {
-	os.Setenv("RESTIC_REPOSITORY", testutil.RandomRepoURI())
-	os.Setenv("RESTIC_PASSWORD", testutil.REPO_PASS)
-	testutil.SetupNewRepo()
+	repoPath := testutil.RandomRepoURI()
+	testutil.RepoWithPathPass(repoPath, testutil.REPO_PASS)
 
-	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), repoPath, testutil.REPO_PASS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +142,7 @@ func TestReindex(t *testing.T) {
 		t.Error("errors found while indexing")
 	}
 
-	testutil.CreateSnapshot()
+	testutil.CreateSnapshotForRepo(repoPath, testutil.REPO_PASS)
 	stats, err = idx.Index(context.Background(), idxOpts, nil)
 	if err != nil {
 		t.Error(err)
@@ -143,7 +155,7 @@ func TestReindex(t *testing.T) {
 	}
 
 	// reindex enabled
-	testutil.CreateSnapshot()
+	testutil.CreateSnapshotForRepo(repoPath, testutil.REPO_PASS)
 	idxOpts.Reindex = true
 	stats, err = idx.Index(context.Background(), idxOpts, nil)
 	if err != nil {
@@ -161,13 +173,11 @@ func TestReindex(t *testing.T) {
 	if len(stats.Errors) != 0 {
 		t.Error("errors found while indexing")
 	}
-
-	testutil.ResetEnv()
 }
 
 func TestIndexWithEngine(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), testutil.REPO_PATH, testutil.REPO_PASS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +202,7 @@ func TestIndexWithEngine(t *testing.T) {
 
 func TestIndexWithUnbufferedProgress(t *testing.T) {
 	progress := make(chan IndexStats)
-	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), testutil.REPO_PATH, testutil.REPO_PASS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +217,7 @@ func TestIndexWithUnbufferedProgress(t *testing.T) {
 
 func TestMissingSnapshots(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx, err := New(testutil.IndexPath(), testutil.RepoURI(), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), testutil.REPO_PATH, testutil.REPO_PASS)
 	if err != nil {
 		t.Fatal(err)
 	}

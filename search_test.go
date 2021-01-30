@@ -11,7 +11,7 @@ import (
 func TestSearch(t *testing.T) {
 	progress := make(chan IndexStats, 10)
 	path := testutil.IndexPath()
-	idx, err := New(path, os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(path, testutil.REPO_PATH, testutil.REPO_PASS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestSearch(t *testing.T) {
 }
 
 func TestSearchInvalid(t *testing.T) {
-	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), testutil.REPO_PATH, testutil.REPO_PASS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestSearchAll(t *testing.T) {
 		"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 	}
 
-	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), testutil.REPO_PATH, testutil.REPO_PASS)
 	if err != nil {
 		t.Fatal(err)
 	}

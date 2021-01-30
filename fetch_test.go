@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 
@@ -66,7 +65,7 @@ func TestFetch(t *testing.T) {
 
 func TestFetchInvalid(t *testing.T) {
 	progress := make(chan IndexStats, 10)
-	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), testutil.REPO_PATH, testutil.REPO_PASS)
 	if err != nil {
 		t.Fatal(err)
 	}

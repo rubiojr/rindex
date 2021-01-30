@@ -25,35 +25,26 @@ func RandomRepoURI() string {
 		panic(err)
 	}
 
+	seedRepo(dir, REPO_PASS)
 	return dir
 }
 
-func SetupEnv() {
-	os.Setenv("RESTIC_REPOSITORY", REPO_PATH)
-	os.Setenv("RESTIC_PASSWORD", REPO_PASS)
-}
-
-func ResetEnv() {
-	SetupEnv()
-}
-
-func CreateSnapshot() {
+func CreateSnapshotForRepo(path, pass string) {
 	cmd := exec.Command("restic", "backup", "testdata")
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, "RESTIC_REPOSITORY="+path)
+	cmd.Env = append(cmd.Env, "RESTIC_PASSWORD="+pass)
 	if err := cmd.Run(); err != nil {
 		panic(err)
 	}
 }
 
-func RepoURI() string {
-	return os.Getenv("RESTIC_REPOSITORY")
+func CreateSnapshot() {
+	CreateSnapshotForRepo(REPO_PATH, REPO_PASS)
 }
 
-func SetupNewRepo() {
-	if RepoURI() == "" {
-		panic("invalid repo")
-	}
-
-	os.RemoveAll(RepoURI())
+func RepoWithPathPass(path, pass string) {
+	os.RemoveAll(path)
 
 	for _, p := range []string{"blugeindex/tmp", "tmp"} {
 		os.RemoveAll(p)
@@ -64,22 +55,34 @@ func SetupNewRepo() {
 		panic(err)
 	}
 
-	if _, err := os.Stat(RepoURI()); err == nil {
+	if _, err := os.Stat(path); err == nil {
 		return
 	}
+	seedRepo(path, pass)
+}
 
+func SetupNewRepo() {
+	RepoWithPathPass(REPO_PATH, REPO_PASS)
+}
+
+func seedRepo(path, pass string) {
 	cmd := exec.Command("restic", "init")
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, "RESTIC_REPOSITORY="+path)
+	cmd.Env = append(cmd.Env, "RESTIC_PASSWORD="+pass)
 	if err := cmd.Run(); err != nil {
 		panic(err)
 	}
 
 	cmd = exec.Command("restic", "backup", "testdata")
+	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, "RESTIC_REPOSITORY="+path)
+	cmd.Env = append(cmd.Env, "RESTIC_PASSWORD="+pass)
 	if err := cmd.Run(); err != nil {
 		panic(err)
 	}
 }
 
 func SetupRepo() {
-	SetupEnv()
 	SetupNewRepo()
 }
