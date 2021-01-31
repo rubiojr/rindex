@@ -15,10 +15,7 @@ var devResticPath = filepath.Join(os.Getenv("HOME"), "restic-dev")
 const shouldIndex = 93351
 
 func benchIndex(batchSize uint) error {
-	os.Setenv("RESTIC_REPOSITORY", devResticPath)
-	os.Setenv("RESTIC_PASSWORD", "test")
-
-	idx, err := New(testutil.IndexPath(), os.Getenv("RESTIC_REOPOSITORY"), os.Getenv("RESTIC_PASSWORD"))
+	idx, err := New(testutil.IndexPath(), testutil.REPO_PATH, testutil.REPO_PASS)
 	if err != nil {
 		return err
 	}

@@ -200,24 +200,15 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 		wg.Done()
 	}()
 
+	log.Debug().Msg("starting to scan snapshots")
 	err = restic.ForAllSnapshots(ctx, repo, nil, func(id restic.ID, snap *restic.Snapshot, err error) error {
+		sid := snap.ID().String()
+		log.Debug().Msgf("scanning snapshot %s", sid)
+
 		if err != nil {
 			stats.ErrorsAdd(err)
 			return err
 		}
-
-		go func() {
-			sid := snap.ID().String()
-			c, err := countFiles(ctx, repo, sid)
-			log.Debug().Msgf("snapshot %s total files: %d", sid, c)
-			if err != nil {
-				log.Error().Err(err).Msgf("error counting snapshot %s files", sid)
-				stats.ErrorsAdd(err)
-				return
-			}
-			stats.SetSnapshotFiles(sid, c)
-			stats.SetCurrentSnapshotTotalFiles(c)
-		}()
 
 		needsIndexing := true
 		log.Debug().Msgf("checking if snapshot %s needs indexing", snap.ID())
@@ -237,6 +228,16 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 		if !needsIndexing {
 			return nil
 		}
+
+		log.Debug().Msgf("counting files in snapshot %s", sid)
+		c, err := countFiles(ctx, repo, snap)
+		if err != nil {
+			log.Error().Err(err).Msgf("error counting snapshot %s files", sid)
+			stats.ErrorsAdd(err)
+		}
+		log.Debug().Msgf("snapshot %s total files: %d", sid, c)
+		stats.SetSnapshotFiles(sid, c)
+		stats.SetCurrentSnapshotTotalFiles(c)
 
 		stats.ScannedSnapshotsInc()
 		i.walkSnapshot(ctx, repo, snap, &stats, opts, progress, ichan)
@@ -492,33 +493,21 @@ func listSnapshots(ctx context.Context, repo *repository.Repository) (<-chan *re
 }
 
 // needs the index loaded
-func countFiles(ctx context.Context, repo *repository.Repository, snapID string) (uint64, error) {
+func countFiles(ctx context.Context, repo *repository.Repository, snap *restic.Snapshot) (uint64, error) {
 	fcount := uint64(0)
+	sid := snap.ID()
 
-	sid, err := restic.ParseID(snapID)
-	if err != nil {
-		return fcount, err
-	}
-
-	sn, err := restic.LoadSnapshot(ctx, repo, sid)
+	sn, err := restic.LoadSnapshot(ctx, repo, *sid)
 	if err != nil {
 		return fcount, err
 	}
 
 	err = walker.Walk(ctx, repo, *sn.Tree, nil, func(_ restic.ID, nodepath string, node *restic.Node, err error) (bool, error) {
-		if err != nil {
-			return false, err
-		}
-
-		if node == nil {
-			return false, nil
-		}
-
-		if node.Type == "file" {
+		if err == nil && node != nil && node.Type == "file" {
 			fcount++
 		}
 
-		return false, nil
+		return false, err
 	})
 
 	return fcount, err
