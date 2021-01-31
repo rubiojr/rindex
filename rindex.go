@@ -206,12 +206,14 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 			return err
 		}
 
-		stats.CurrentSnapshotFiles = 0
 		go func() {
 			sid := snap.ID().String()
 			c, err := countFiles(ctx, repo, sid)
+			log.Debug().Msgf("snapshot %s total files: %d", sid, c)
 			if err != nil {
 				log.Error().Err(err).Msgf("error counting snapshot %s files", sid)
+				stats.ErrorsAdd(err)
+				return
 			}
 			stats.SetSnapshotFiles(sid, c)
 			stats.SetCurrentSnapshotTotalFiles(c)
