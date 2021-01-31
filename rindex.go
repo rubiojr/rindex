@@ -160,13 +160,28 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 	}
 
 	go func() {
+		sc, err := listSnapshots(ctx, repo)
+		if err != nil {
+			stats.ErrorsAdd(err)
+			return
+		}
+		count := uint64(0)
+		for _ = range sc {
+			count++
+		}
+		stats.SetTotalSnapshots(count)
+	}()
+
+	go func() {
 		snaps, err := i.listMissingSnapshots(ctx, repo)
 		if err != nil {
 			stats.ErrorsAdd(err)
 		}
 		stats.SetMissingSnapshots(uint64(len(snaps)))
+		log.Debug().Msgf("missing snapshots: %d", len(snaps))
 	}()
 
+	log.Debug().Msg("loading index")
 	if err = repo.LoadIndex(ctx); err != nil {
 		return stats, err
 	}
@@ -203,6 +218,7 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 		}()
 
 		needsIndexing := true
+		log.Debug().Msgf("checking if snapshot %s needs indexing", snap.ID())
 		err = i.inCache(func(cache *leveldb.DB) error {
 			if _, err := cache.Get(snap.ID()[:], nil); err == nil && !opts.Reindex {
 				needsIndexing = false
@@ -210,6 +226,7 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 
 			return err
 		})
+		log.Debug().Msgf("snapshot %s needs indexing: %t", snap.ID(), needsIndexing)
 
 		if err != nil {
 			stats.ErrorsAdd(err)
@@ -267,8 +284,10 @@ func (i Indexer) listMissingSnapshots(ctx context.Context, repo *repository.Repo
 		return missing, err
 	}
 
+	snapsFound := uint64(0)
 	err = i.inCache(func(cache *leveldb.DB) error {
 		for snap := range snaps {
+			snapsFound++
 			if _, err := cache.Get(snap.ID()[:], nil); err == nil {
 				continue
 			}
@@ -277,6 +296,7 @@ func (i Indexer) listMissingSnapshots(ctx context.Context, repo *repository.Repo
 
 		return nil
 	})
+	log.Debug().Msgf("snapshots found: %d", snapsFound)
 
 	return missing, err
 }
@@ -366,6 +386,8 @@ func (i *Indexer) Close() {
 }
 
 func (i *Indexer) walkSnapshot(ctx context.Context, repo *repository.Repository, sn *restic.Snapshot, stats *IndexStats, opts IndexOptions, progress chan IndexStats, ichan chan blugeindex.Indexable) error {
+	log.Debug().Msgf("scanning snapshot %s", sn.ID())
+
 	if sn.Tree == nil {
 		return fmt.Errorf("snapshot %v has no tree", sn.ID().Str())
 	}

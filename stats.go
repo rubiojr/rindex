@@ -32,6 +32,9 @@ type IndexStats struct {
 	// Total number of files in the snapshot being scanned
 	CurrentSnapshotTotalFiles uint64
 
+	// Total number of snapshots
+	TotalSnapshots uint64
+
 	m *sync.Mutex
 }
 
@@ -102,5 +105,11 @@ func (s *IndexStats) SetCurrentSnapshotTotalFiles(count uint64) {
 func (s *IndexStats) CurrentSnapshotFilesInc() {
 	s.m.Lock()
 	s.CurrentSnapshotFiles++
+	s.m.Unlock()
+}
+
+func (s *IndexStats) SetTotalSnapshots(count uint64) {
+	s.m.Lock()
+	s.TotalSnapshots = count
 	s.m.Unlock()
 }
