@@ -185,6 +185,7 @@ func (i *Indexer) Index(ctx context.Context, opts IndexOptions, progress chan In
 	if err = repo.LoadIndex(ctx); err != nil {
 		return stats, err
 	}
+	log.Debug().Msg("index loaded")
 
 	ichan := make(chan blugeindex.Indexable, int(i.IndexEngine.BatchSize))
 	indexed := i.IndexEngine.Index(ichan)
